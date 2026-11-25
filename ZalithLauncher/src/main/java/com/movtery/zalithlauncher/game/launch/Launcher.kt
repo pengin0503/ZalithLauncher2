@@ -597,8 +597,14 @@ fun getCacioJavaArgs(
 
 /**
  * 获取设备 SoC 名称，在 API 31+ 读取系统属性 ro.soc.model，若失败则返回 Build.HARDWARE
+ *
+ * [Build.SOC_MODEL] 与 `getprop ro.soc.model` 读取的是同一个系统属性，
+ * 因此 API 31+ 直接读取字段即可，无需再启动 getprop 进程。
  */
 fun getSocName(): String {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        Build.SOC_MODEL.takeIf { it.isNotBlank() }?.let { return it }
+    }
     return runCatching {
         ProcessBuilder("getprop", "ro.soc.model")
             .start()

@@ -45,6 +45,8 @@ class AllModReader(val modsDir: File) {
         pack: (LocalMod) -> T
     ): List<ReadTask<T>> {
         val files = modsDir.listFiles()?.filter { !it.isDirectory } ?: return emptyList()
+        //只清理本次扫描目录下已不存在的缓存，避免误删其他游戏目录
+        ModMetadataCache.prune(modsDir, files.mapTo(HashSet<String>(files.size)) { it.absolutePath })
         return files.map { file ->
             ReadTask(file, pack)
         }
@@ -95,6 +97,9 @@ class AllModReader(val modsDir: File) {
             taskChannel.close()
 
             workers.joinAll()
+
+            //本次扫描新增或更新过的元数据一次性写回磁盘
+            ModMetadataCache.save()
         }
     }
 
@@ -106,22 +111,31 @@ class AllModReader(val modsDir: File) {
             try {
                 currentCoroutineContext().ensureActive()
 
+                //命中缓存时跳过打开 jar，直接还原出模组元数据
+                ModMetadataCache.get(file)?.let { cached ->
+                    return pack(cached.toLocalMod(file))
+                }
+
                 val extension = if (file.isDisabled()) {
                     File(file.nameWithoutExtension).extension
                 } else {
                     file.extension
                 }
 
-                return MOD_READERS[extension]?.firstNotNullOfOrNull { reader ->
+                val mod = MOD_READERS[extension]?.firstNotNullOfOrNull { reader ->
                     runCatching {
-                        pack(
-                            reader.fromLocal(file)
-                        )
+                        reader.fromLocal(file)
                     }.onFailure { e ->
                         if (e !is UnpackZipException) Log.d(TAG, "Exception encountered while parsing the mod", e)
                     }.getOrNull()
                     //返回null，继续使用下一个解析器
                 } ?: throw IllegalArgumentException("No matching reader for extension: $extension")
+
+                if (!mod.notMod) {
+                    //只缓存解析成功的结果；解析失败的 jar 不写入缓存，修复后会重新解析
+                    ModMetadataCache.put(file, CachedModMetadata.fromLocalMod(file, mod))
+                }
+                return pack(mod)
             } catch (e: Exception) {
                 when (e) {
                     is CancellationException -> throw e
