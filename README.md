@@ -1,3 +1,8 @@
+> [!NOTE]
+> **Zalith Lite — unofficial fork.** This is a personal, unofficial fork of [Zalith Launcher 2](https://github.com/ZalithLauncher/ZalithLauncher2), lightened and tuned for a single device: the OPPO Reno13 A. It is **not** affiliated with the Zalith Launcher project — for the official app, go to the upstream repository. Main changes: bundled JRE 8/17 and unused native libraries removed, launch-time file-verification stamps, big-core CPU scheduling, Reno13 A-tuned defaults, and the PetLib / Terracotta features removed. Licensed under GPL-3.0, same as upstream. The original README follows below.
+>
+> 日本語：これは OPPO Reno13 A 向けに軽量化した非公式の個人フォークです。本家 Zalith Launcher プロジェクトとは無関係です。公式版は上流リポジトリをご覧ください。
+
 # Zalith Launcher 2
 ![Downloads](https://img.shields.io/github/downloads/ZalithLauncher/ZalithLauncher2/total)
 [![Sponsor](https://img.shields.io/badge/sponsor-30363D?logo=GitHub-Sponsors)](https://afdian.com/a/MovTery)
