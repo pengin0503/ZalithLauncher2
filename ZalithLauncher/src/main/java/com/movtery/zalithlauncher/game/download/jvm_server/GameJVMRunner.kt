@@ -22,6 +22,7 @@ import android.content.Intent
 import com.movtery.zalithlauncher.components.jre.Jre
 import com.movtery.zalithlauncher.context.GlobalContext
 import com.movtery.zalithlauncher.coroutine.TaskLogOutput
+import com.movtery.zalithlauncher.game.multirt.RuntimesManager
 import com.movtery.zalithlauncher.notification.NoticeProgress
 import com.movtery.zalithlauncher.utils.logging.Logger
 import kotlinx.coroutines.CancellationException
@@ -75,13 +76,24 @@ suspend fun runJvmRetryRuntimes(
 
     start()
 
-    val finalArgs = prefixArgs(jre)?.let {
+    // 跳过未安装的 JRE，直接从可用的运行时开始，避免 Lite 构建下 8/17 的空转重试
+    val usableJre = generateSequence(jre) { current ->
+        when (current) {
+            Jre.JRE_8 -> Jre.JRE_17
+            Jre.JRE_17 -> Jre.JRE_21
+            Jre.JRE_21 -> Jre.JRE_25
+            Jre.JRE_25 -> null
+        }
+    }.firstOrNull { RuntimesManager.isRuntimeUsable(it.jreName) }
+        ?: throw JvmCrashException(1)
+
+    val finalArgs = prefixArgs(usableJre)?.let {
         "$it $jvmArgs"
     } ?: jvmArgs
 
     val exitCode = startJvmServiceAndWaitExit(
         jvmArgs = finalArgs,
-        jreName = jre.jreName,
+        jreName = usableJre.jreName,
         userHome = userHome,
         postSummary = postSummary,
         postProgress = postProgress,
@@ -89,10 +101,11 @@ suspend fun runJvmRetryRuntimes(
     )
 
     if (exitCode != 0) {
-        val nextJava: Jre? = when (jre) {
+        val nextJava: Jre? = when (usableJre) {
             Jre.JRE_8 -> Jre.JRE_17
             Jre.JRE_17 -> Jre.JRE_21
-            else -> null
+            Jre.JRE_21 -> Jre.JRE_25
+            Jre.JRE_25 -> null
         }
 
         nextJava?.let { jre ->
