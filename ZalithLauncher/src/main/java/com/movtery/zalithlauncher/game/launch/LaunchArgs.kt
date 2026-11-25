@@ -64,7 +64,12 @@ class LaunchArgs(
     private val lwjglVersion: Int,
     private val runtime: Runtime,
     private val readAssetsFile: (path: String) -> String,
-    private val getCacioJavaArgs: (isJava8: Boolean) -> List<String>
+    private val getCacioJavaArgs: (isJava8: Boolean) -> List<String>,
+    /**
+     * 是否注入 Cacio AWT 实现。
+     * 默认保留（安装器 JVM 需要它渲染 AWT 安装界面）；游戏启动路径传入 false。
+     */
+    private val includeCacio: Boolean = true
 ) {
     fun getAllArgs(): List<String> {
         val argsList: MutableList<String> = ArrayList()
@@ -216,7 +221,11 @@ class LaunchArgs(
             }
         }
 
-        argsList.addAll(getCacioJavaArgs(runtime.javaVersion == 8))
+        if (includeCacio) {
+            // Cacio 是供安装器 AWT 界面使用的 AWT 实现；游戏使用 GL/EGL 管线，不需要它。
+            // 真正依赖 AWT 的模组会收到明确的 missing-AWT 错误，而不是被静默忽略。
+            argsList.addAll(getCacioJavaArgs(runtime.javaVersion == 8))
+        }
 
         //MioLibPatcher 需作为 JVM 选项注册在 cacio agent 之后、-cp 之前
         argsList.add("-javaagent:${LibPath.MIO_LIB_PATCHER.absolutePath}")

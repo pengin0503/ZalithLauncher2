@@ -72,6 +72,7 @@ import com.movtery.zalithlauncher.game.account.isMicrosoftAccount
 import com.movtery.zalithlauncher.game.account.microsoftLogin
 import com.movtery.zalithlauncher.game.plugin.ApkPlugin
 import com.movtery.zalithlauncher.game.plugin.natives.NativePluginManager
+import com.movtery.zalithlauncher.game.plugin.renderer.RendererPluginCache
 import com.movtery.zalithlauncher.game.plugin.renderer.RendererPluginManager
 import com.movtery.zalithlauncher.game.renderer.RendererInterface
 import com.movtery.zalithlauncher.game.renderer.Renderers
@@ -299,6 +300,11 @@ fun LaunchGameOperation(
                 }
 
                 val currentRenderer = Renderers.setCurrentRenderer(version.getRenderer())
+                // FF-F2-3：主进程解析出当前渲染器后缓存其插件身份（包名 + versionCode），
+                // 供 :game 进程定向加载，避免每次启动扫描所有已安装应用
+                withContext(Dispatchers.IO) {
+                    RendererPluginCache.save(activity.applicationContext, currentRenderer)
+                }
 
                 val mcVer = version.getVersionInfo()!!.minecraftVersion
 
