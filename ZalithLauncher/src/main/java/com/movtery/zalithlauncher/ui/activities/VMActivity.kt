@@ -1316,7 +1316,8 @@ fun runGame(
     version: Version,
     account: Account,
 ) {
-    startGameService(context)
+    //GameService 已由启动流程提前启动以预热 :game 进程；
+    //即使预热失败，VMActivity.onCreate 也会再次确保服务运行
     val intent = Intent(context, VMActivity::class.java).apply {
         putExtra(INTENT_RUN_GAME, true)
         putExtra(INTENT_GAME_CONFIG, LaunchConfig(version, account))
@@ -1358,7 +1359,10 @@ fun runJar(
     context.startActivity(intent)
 }
 
-private fun startGameService(context: Context) {
+/**
+ * 启动 [GameService]（`:game` 进程），用于在启动流程早期预热进程
+ */
+fun startGameService(context: Context) {
     runCatching {
         //应用处于后台等受限状态时系统会拒绝启动，此时无需保活，忽略即可
         context.startService(Intent(context, GameService::class.java))

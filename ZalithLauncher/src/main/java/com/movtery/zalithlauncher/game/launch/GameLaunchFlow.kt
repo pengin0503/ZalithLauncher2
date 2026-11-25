@@ -19,6 +19,7 @@
 package com.movtery.zalithlauncher.game.launch
 
 import android.content.Context
+import android.content.Intent
 import com.movtery.zalithlauncher.R
 import com.movtery.zalithlauncher.coroutine.Task
 import com.movtery.zalithlauncher.coroutine.TaskFlowExecutor
@@ -53,16 +54,20 @@ import com.movtery.zalithlauncher.game.version.mod.AllModReader
 import com.movtery.zalithlauncher.game.version.mod.isEnabled
 import com.movtery.zalithlauncher.game.versioninfo.models.GameManifest
 import com.movtery.zalithlauncher.ui.activities.runGame
+import com.movtery.zalithlauncher.ui.activities.startGameService
 import com.movtery.zalithlauncher.ui.androidText
 import com.movtery.zalithlauncher.utils.GSON
 import com.movtery.zalithlauncher.utils.network.isNetworkAvailable
 import com.movtery.zalithlauncher.utils.string.getMessageOrToString
 import com.movtery.zalithlauncher.viewmodel.ErrorViewModel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 
 /** 账号凭据已被服务端拒绝 */
 private class LaunchReloginRequired(
@@ -85,6 +90,22 @@ private class LaunchRendererDeclined : RuntimeException("Launch declined at rend
 class GameLaunchFlow(scope: CoroutineScope) {
     private val taskExecutor = TaskFlowExecutor(scope)
     val tasksFlow: StateFlow<List<TitledTask>> = taskExecutor.tasksFlow
+
+    /** FF-F1-1：本次启动是否已提前拉起 :game 服务，用于失败/取消时回收 */
+    @Volatile
+    private var servicePrewarmed = false
+
+    /** 是否已走到 runGame；进入后不再回收 :game 服务 */
+    @Volatile
+    private var gameStarted = false
+
+    /** 提前启动服务时使用的 Context，用于 stopService */
+    @Volatile
+    private var prewarmContext: Context? = null
+
+    /** FF-F1-3：与校验任务并行的账号校验任务 */
+    @Volatile
+    private var accountCheckJob: Job? = null
 
     /**
      * 启动游戏
@@ -123,25 +144,45 @@ class GameLaunchFlow(scope: CoroutineScope) {
             }
         }
 
+        // FF-F1-1：在账号校验、模组扫描与完整性校验开始前先拉起 :game 服务，
+        // 让 :game 进程 fork 与 ZLApplication.onCreate 与这些任务并行；
+        // runGame 不再重复启动服务（重复 startService 本身也是幂等的）。
+        servicePrewarmed = false
+        gameStarted = false
+        prewarmContext = context.applicationContext
+        startGameService(context)
+        servicePrewarmed = true
+
         taskExecutor.executePhasesAsync(
             onStart = {
-                taskExecutor.addPhases(
-                    listOf(
-                        buildLaunchPhases(
-                            context = context,
-                            version = version,
-                            account = account,
-                            skipAccountRefresh = skipAccountRefresh,
-                            exitActivity = exitActivity,
-                            ensureVulkanSupported = ensureVulkanSupported,
-                            onRendererUnsupported = onRendererUnsupported,
-                            onError = handleError
+                try {
+                    //当前任务流 Job 的子协程作用域，流程取消时并行的账号校验会被一并取消
+                    val flowScope = CoroutineScope(currentCoroutineContext())
+                    taskExecutor.addPhases(
+                        listOf(
+                            buildLaunchPhases(
+                                context = context,
+                                version = version,
+                                account = account,
+                                skipAccountRefresh = skipAccountRefresh,
+                                exitActivity = exitActivity,
+                                ensureVulkanSupported = ensureVulkanSupported,
+                                onRendererUnsupported = onRendererUnsupported,
+                                onError = handleError,
+                                flowScope = flowScope
+                            )
                         )
                     )
-                )
+                } catch (e: Throwable) {
+                    //阶段构建失败也算启动失败，回收提前拉起的服务
+                    stopPrewarmedService()
+                    throw e
+                }
             },
             onComplete = onComplete,
             onError = { th ->
+                cancelAccountCheck()
+                stopPrewarmedService()
                 when (th) {
                     is LaunchReloginRequired -> onReloginRequired(th.account)
                     is LaunchCheckFailed -> onRefreshFailed(th.account, th.cause ?: th)
@@ -154,6 +195,10 @@ class GameLaunchFlow(scope: CoroutineScope) {
                     )
                 }
             },
+            onCancel = {
+                cancelAccountCheck()
+                stopPrewarmedService()
+            },
         )
     }
 
@@ -161,7 +206,27 @@ class GameLaunchFlow(scope: CoroutineScope) {
      * 取消当前的启动流程
      */
     fun cancel() {
+        cancelAccountCheck()
         taskExecutor.cancel()
+        stopPrewarmedService()
+    }
+
+    private fun cancelAccountCheck() {
+        accountCheckJob?.cancel()
+        accountCheckJob = null
+    }
+
+    /**
+     * 启动失败/被取消且尚未进入 runGame 时，停止提前拉起的 :game 服务，避免残留进程
+     */
+    private fun stopPrewarmedService() {
+        if (!servicePrewarmed || gameStarted) return
+        servicePrewarmed = false
+        prewarmContext?.let { context ->
+            runCatching {
+                context.stopService(Intent(context, GameService::class.java))
+            }
+        }
     }
 
     private fun buildLaunchPhases(
@@ -172,7 +237,8 @@ class GameLaunchFlow(scope: CoroutineScope) {
         exitActivity: () -> Unit,
         ensureVulkanSupported: suspend (Version) -> Boolean,
         onRendererUnsupported: suspend (RendererInterface, Version) -> Boolean,
-        onError: (ErrorViewModel.ThrowableMessage) -> Unit
+        onError: (ErrorViewModel.ThrowableMessage) -> Unit,
+        flowScope: CoroutineScope
     ): TaskFlowExecutor.TaskPhase {
         //检查是否联网，根据这个条件决定是否校验账号
         //以及，没有联网时，让微软账号、外置账号作为离线账号登录
@@ -184,29 +250,46 @@ class GameLaunchFlow(scope: CoroutineScope) {
         return buildPhase {
             var launchManifest: GameManifest? = null
 
-            if (hasNetwork && !skipAccountRefresh && AccountsManager.isLaunchCheckNeeded(account)) {
-                //账号管理页正在刷新该账号时，直接使用现有凭据启动
-                addTask(
-                    icon = R.drawable.ic_login,
-                    title = androidText(R.string.account_logging_in, account.username),
-                    dispatcher = Dispatchers.IO
-                ) { task ->
-                    try {
-                        if (account.isMicrosoftAccount()) {
-                            checkMicrosoftAccount(task, account)
-                        } else {
-                            checkOtherAccount(task, context, account)
+            // FF-F1-3：TaskFlowExecutor 阶段内任务严格串行，无法在任务模型中表达并行。
+            // 因此将账号校验作为任务流 Job 的子协程提前启动，与 MOD 扫描、完整性校验并行；
+            // 在 runGame 前的“账号校验”任务中 join，失败仍抛出原有异常类型，
+            // 由外层 onError 走与之前完全一致的 LaunchReloginRequired/LaunchCheckFailed 路径。
+            val needsAccountCheck = hasNetwork && !skipAccountRefresh &&
+                    AccountsManager.isLaunchCheckNeeded(account)
+            val accountCheck = CompletableDeferred<Throwable?>()
+            val accountTask = if (needsAccountCheck) {
+                //该任务只负责等待并转发并行校验的结果，账号校验已在后台开始
+                Task.runTask(
+                    dispatcher = Dispatchers.IO,
+                    task = {
+                        val failure = accountCheck.await()
+                        if (failure != null) {
+                            if (failure is CancellationException) throw failure
+                            if (failure.isReloginRequired()) throw LaunchReloginRequired(account)
+                            throw LaunchCheckFailed(account, failure)
                         }
-                        AccountsManager.markSessionValidated(account)
-                        AccountsManager.suspendSaveAccount(account)
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Throwable) {
-                        if (e.isReloginRequired()) throw LaunchReloginRequired(account)
-                        throw LaunchCheckFailed(account, e)
+                    }
+                ).also { task ->
+                    accountCheckJob = flowScope.launch(Dispatchers.IO) {
+                        try {
+                            if (account.isMicrosoftAccount()) {
+                                checkMicrosoftAccount(task, account)
+                            } else {
+                                checkOtherAccount(task, context, account)
+                            }
+                            AccountsManager.markSessionValidated(account)
+                            AccountsManager.suspendSaveAccount(account)
+                            accountCheck.complete(null)
+                        } catch (e: CancellationException) {
+                            accountCheck.completeExceptionally(e)
+                            throw e
+                        } catch (e: Throwable) {
+                            //异常延迟到 join 时再抛出，保持原有的启动失败语义
+                            accountCheck.complete(e)
+                        }
                     }
                 }
-            }
+            } else null
 
             // 检查游戏环境
             // 扫描模组列表，开启对应功能，并检查渲染器兼容性
@@ -254,6 +337,16 @@ class GameLaunchFlow(scope: CoroutineScope) {
                 )
             }
 
+            //账号校验任务仅在此处 join：正常情况下校验早已在后台完成，
+            //异常（如需重新登录）也在这里才抛出，启动因此失败的方式与之前一致
+            accountTask?.let { task ->
+                addTask(
+                    icon = R.drawable.ic_login,
+                    title = androidText(R.string.account_logging_in, account.username),
+                    task = task
+                )
+            }
+
             //启动游戏
             addTask(
                 icon = R.drawable.ic_rocket_launch_filled,
@@ -267,7 +360,9 @@ class GameLaunchFlow(scope: CoroutineScope) {
                             .build()
                     )
                 }
+                //成功拉起 VMActivity 后不再回收预热的 :game 服务
                 runGame(context, version, account)
+                gameStarted = true
                 exitActivity()
             }
         }
