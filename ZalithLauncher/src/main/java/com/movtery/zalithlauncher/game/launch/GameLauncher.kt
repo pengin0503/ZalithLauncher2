@@ -95,6 +95,9 @@ class GameLauncher(
     },
     openPath = openPath
 ) {
+    /** 大核 affinity 与 ActiveProcessorCount 只用于真正的游戏启动 */
+    override val appliesBigCoreAffinity: Boolean get() = true
+
     private lateinit var gameManifest: GameManifest
     private var jnaDir: File? = null
     private var configuredRenderer: RendererLaunchConfig? = null

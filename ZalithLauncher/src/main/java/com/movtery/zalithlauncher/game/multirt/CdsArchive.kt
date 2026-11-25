@@ -20,6 +20,7 @@ package com.movtery.zalithlauncher.game.multirt
 
 import android.content.Context
 import androidx.compose.ui.unit.IntSize
+import com.movtery.zalithlauncher.BuildConfig
 import com.movtery.zalithlauncher.components.jre.Jre
 import com.movtery.zalithlauncher.context.GlobalContext
 import com.movtery.zalithlauncher.game.download.jvm_server.listBlockingProcesses
@@ -35,12 +36,20 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.io.IOException
+import java.util.Collections
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.seconds
 
 private const val TAG = "CdsArchive"
 
 /** 单次归档生成的等待上限，超时后放弃并保留失败标记，避免反复拖慢启动 */
 private val CDS_DUMP_TIMEOUT = 90.seconds
+
+/** 同一 app 版本内最多尝试生成的次数（含首次） */
+private const val CDS_MAX_ATTEMPTS = 3
+
+/** 同一 app 版本内两次失败重试之间的最小间隔 */
+private val CDS_RETRY_INTERVAL = 24.hours
 
 /**
  * 游戏 JRE（21/25）的 CDS（Class Data Sharing）归档管理。
@@ -69,8 +78,8 @@ object CdsArchive {
         File(runtimeHome, "cds/generation.failed")
 
     /**
-     * 是否需要（重新）生成归档。缺失 classlist 或已记录过失败时返回 false，
-     * 避免让 Splash 的安装项永远处于 PENDING。
+     * 是否需要（重新）生成归档。缺失 classlist、本次运行已失败、或失败标记不允许重试时
+     * 返回 false，避免让 Splash 的安装项永远处于 PENDING（见 [retryAllowed]）。
      */
     fun needsGeneration(jre: Jre): Boolean {
         if (jre !in supportedJres) return false
@@ -78,8 +87,52 @@ object CdsArchive {
         if (!home.isDirectory) return false
         val archive = archiveFile(home)
         if (archive.isFile && archive.length() > 0) return false
-        if (failureMarker(home).exists()) return false
+        if (!retryAllowed(jre, home)) return false
         return classListFile(home).isFile
+    }
+
+    /**
+     * 本次进程内已经失败过的运行时：同一次 app 运行里绝不重试，避免循环。
+     */
+    private val failedThisRun: MutableSet<Jre> = Collections.synchronizedSet(mutableSetOf())
+
+    /**
+     * 失败标记内容（key=value 行）。旧版本写入的纯文本标记无法解析出字段，
+     * 视为“1 次失败、app 版本未知（=已变化）”，因此升级后会再尝试一次。
+     */
+    private data class FailureRecord(
+        val attempts: Int,
+        val lastFailureMs: Long,
+        val appVersionCode: Long?
+    )
+
+    private fun readFailure(marker: File): FailureRecord? {
+        if (!marker.exists()) return null
+        val fields = runCatching {
+            marker.readLines().mapNotNull { line ->
+                val idx = line.indexOf('=')
+                if (idx <= 0) null else line.substring(0, idx).trim() to line.substring(idx + 1).trim()
+            }.toMap()
+        }.getOrDefault(emptyMap())
+        return FailureRecord(
+            attempts = fields["attempts"]?.toIntOrNull()?.coerceAtLeast(1) ?: 1,
+            lastFailureMs = fields["lastFailure"]?.toLongOrNull() ?: marker.lastModified(),
+            appVersionCode = fields["appVersion"]?.toLongOrNull()
+        )
+    }
+
+    /**
+     * 有限重试：本次运行已失败过 → 不重试；没有失败标记 → 允许；
+     * app 版本与失败时不同 → 允许；否则需尝试次数 < [CDS_MAX_ATTEMPTS] 且距上次失败 ≥ [CDS_RETRY_INTERVAL]。
+     */
+    private fun retryAllowed(jre: Jre, home: File): Boolean {
+        if (jre in failedThisRun) return false
+        val record = readFailure(failureMarker(home)) ?: return true
+        if (record.appVersionCode != BuildConfig.VERSION_CODE.toLong()) return true
+        if (record.attempts >= CDS_MAX_ATTEMPTS) return false
+        val elapsedMs = System.currentTimeMillis() - record.lastFailureMs
+        // 时钟回拨（elapsed < 0）时按“未到间隔”处理，等下一次正常的时间点
+        return elapsedMs >= CDS_RETRY_INTERVAL.inWholeMilliseconds
     }
 
     /**
@@ -181,13 +234,26 @@ object CdsArchive {
     }
 
     private fun markFailed(jre: Jre, error: Exception) {
+        failedThisRun.add(jre)
         runCatching {
             val home = File(PathManager.DIR_MULTIRT, jre.jreName)
             // 运行时已被删除（用户取消/卸载）时不要重新创建目录
             if (!home.isDirectory) return@runCatching
             val marker = failureMarker(home)
+            val versionCode = BuildConfig.VERSION_CODE.toLong()
+            val previous = readFailure(marker)
+            // app 版本变化后重新计数
+            val attempts = if (previous != null && previous.appVersionCode == versionCode) {
+                previous.attempts + 1
+            } else 1
+            val message = (error.message ?: error.javaClass.name).replace('\n', ' ')
             marker.parentFile?.mkdirs()
-            marker.writeText(error.message ?: error.javaClass.name)
+            marker.writeText(
+                "attempts=$attempts\n" +
+                    "lastFailure=${System.currentTimeMillis()}\n" +
+                    "appVersion=$versionCode\n" +
+                    "message=$message\n"
+            )
         }.onFailure {
             Logger.warning(TAG, "Failed to write CDS failure marker for ${jre.jreName}", it)
         }

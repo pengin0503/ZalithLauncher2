@@ -117,3 +117,29 @@ fun stopAllNonMainProcesses(context: Context) {
             }
         }
 }
+
+/** 当前是否存在本应用的 :game 进程（不含调用方自身） */
+fun isGameProcessRunning(context: Context): Boolean {
+    val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+    val gameProcessName = context.packageName + ":game"
+    val myPid = android.os.Process.myPid()
+    return am.runningAppProcesses.orEmpty().any { it.pid != myPid && it.processName == gameProcessName }
+}
+
+/**
+ * 只结束 :game 进程（不碰 :jvm）。调用方必须自行保证 :game 内没有游戏会话。
+ */
+fun stopGameProcess(context: Context) {
+    val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+    val gameProcessName = context.packageName + ":game"
+    val myPid = android.os.Process.myPid()
+    am.runningAppProcesses.orEmpty()
+        .filter { it.pid != myPid && it.processName == gameProcessName }
+        .forEach {
+            try {
+                android.os.Process.killProcess(it.pid)
+            } catch (_: Exception) {
+                //忽略
+            }
+        }
+}
