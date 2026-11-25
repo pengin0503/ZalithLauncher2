@@ -88,9 +88,9 @@ data class VerifyStamp(
  * 因此 client jar 等关键文件永远整文件哈希，且世代键不一致或上次会话非正常退出时全量哈希。
  */
 object VerifyStampStore {
-    /** 游戏版本文件的 stamp 位置 */
-    fun gameStampFile(versionId: String): File =
-        File(PathManager.DIR_VERIFY_STAMPS, "${safeFileName(versionId)}.json")
+    /** 游戏版本文件的 stamp 位置；[stampKey] 由 [gameStampKey] 生成 */
+    fun gameStampFile(stampKey: String): File =
+        File(PathManager.DIR_VERIFY_STAMPS, "$stampKey.json")
 
     /** 组件（LWJGL / caciocavallo / jna 等）文件的 stamp 位置 */
     fun componentStampFile(component: String): File =
@@ -164,12 +164,18 @@ object VerifyStampStore {
     }
 
     /**
-     * 标记游戏 JVM 已启动。
-     * 若进程在清除标记前死亡（崩溃/被系统杀死），下次启动会看到该标记并强制全量校验。
+     * 版本 stamp 的定位键：同名版本可能位于不同的游戏目录，因此把游戏目录也纳入键中
      */
-    fun markSessionRunning() {
+    fun gameStampKey(gameHome: String, versionId: String): String =
+        "${safeFileName(versionId)}-${sha1Hex(File(gameHome).absolutePath).take(8)}"
+
+    /**
+     * 标记游戏 JVM 已启动（按版本区分）。
+     * 若进程在清除标记前死亡（崩溃/被系统杀死），下次校验该版本时会看到该标记并强制全量校验。
+     */
+    fun markSessionRunning(stampKey: String) {
         runCatching {
-            val file = sessionFlagFile()
+            val file = sessionFlagFile(stampKey)
             if (!file.parentFile.isDirectory) file.parentFile.mkdirs()
             file.writeText(System.currentTimeMillis().toString())
         }.onFailure { e ->
@@ -178,22 +184,38 @@ object VerifyStampStore {
     }
 
     /**
-     * 游戏 JVM 正常返回后调用；仅在退出码为 0 时清除标记，其余情况保留以触发下次全量校验
+     * 游戏 JVM 退出时调用；仅在非信号且退出码为 0 时清除标记，其余情况保留以触发下次全量校验。
+     * 注意：正常退出路径走 native nominal_exit -> ZLNativeInvoker.jvmExit，进程随后被结束，
+     * launchJvm 通常不会返回，因此必须在 onExit 回调中调用本函数。
      */
-    fun onGameSessionExited(exitCode: Int) {
-        if (exitCode == 0) {
-            clearUncleanSession()
+    fun onGameSessionExited(stampKey: String, exitCode: Int, isSignal: Boolean = false) {
+        if (forceClosed) {
+            Logger.info(TAG, "Game was force-closed, next launch will force full verification")
+        } else if (exitCode == 0 && !isSignal) {
+            clearUncleanSession(stampKey)
         } else {
-            Logger.info(TAG, "Game exit code $exitCode, next launch will force full verification")
+            Logger.info(TAG, "Game exit code $exitCode (signal=$isSignal), next launch will force full verification")
         }
     }
 
-    fun hasUncleanSession(): Boolean = sessionFlagFile().isFile
+    /** 当前 :game 进程内用户是否通过“强制关闭”结束了游戏（其退出码同样为 0） */
+    @Volatile
+    private var forceClosed = false
 
-    fun clearUncleanSession() {
-        val file = sessionFlagFile()
-        if (file.isFile && !file.delete()) {
-            Logger.warning(TAG, "Failed to clear session running flag: ${file.absolutePath}")
+    /** 强制关闭游戏前调用：使随后的 jvmExit(0) 不被视为正常退出 */
+    fun markForceClosed() {
+        forceClosed = true
+    }
+
+    /** 该版本的上次会话是否非正常结束（旧版全局标记视为对所有版本生效） */
+    fun hasUncleanSession(stampKey: String): Boolean =
+        sessionFlagFile(stampKey).isFile || legacySessionFlagFile().isFile
+
+    fun clearUncleanSession(stampKey: String) {
+        listOf(sessionFlagFile(stampKey), legacySessionFlagFile()).forEach { file ->
+            if (file.isFile && !file.delete()) {
+                Logger.warning(TAG, "Failed to clear session running flag: ${file.absolutePath}")
+            }
         }
     }
 
@@ -257,7 +279,11 @@ object VerifyStampStore {
         )
     }
 
-    private fun sessionFlagFile(): File = File(PathManager.DIR_VERIFY_STAMPS, SESSION_FLAG_FILE)
+    private fun sessionFlagFile(stampKey: String): File =
+        File(PathManager.DIR_VERIFY_STAMPS, "$SESSION_FLAG_FILE.$stampKey")
+
+    /** Stage 4a 初版使用的全局标记，仅用于兼容读取/清理 */
+    private fun legacySessionFlagFile(): File = File(PathManager.DIR_VERIFY_STAMPS, SESSION_FLAG_FILE)
 
     private fun safeFileName(name: String): String {
         val sanitized = name.replace(Regex("[^A-Za-z0-9._-]"), "_")
@@ -275,6 +301,7 @@ object VerifyStampStore {
  */
 class GameVerifySession private constructor(
     private val baseDir: File,
+    private val stampKey: String,
     private val stampFile: File,
     private val generationKey: String,
     private val previous: VerifyStamp?,
@@ -329,7 +356,7 @@ class GameVerifySession private constructor(
      * 本地校验阶段结束时调用：若本次已全量哈希，说明上次非正常退出/世代匹配问题已处理完毕
      */
     fun onVerificationPassFinished() {
-        if (!useStamps) VerifyStampStore.clearUncleanSession()
+        if (!useStamps) VerifyStampStore.clearUncleanSession(stampKey)
     }
 
     /**
@@ -364,9 +391,10 @@ class GameVerifySession private constructor(
         private const val SESSION_TAG = "GameVerifySession"
 
         fun open(versionId: String, baseDir: File, generationKey: String): GameVerifySession {
-            val stampFile = VerifyStampStore.gameStampFile(versionId)
+            val stampKey = VerifyStampStore.gameStampKey(baseDir.absolutePath, versionId)
+            val stampFile = VerifyStampStore.gameStampFile(stampKey)
             val previous = VerifyStampStore.load(stampFile)
-            val unclean = VerifyStampStore.hasUncleanSession()
+            val unclean = VerifyStampStore.hasUncleanSession(stampKey)
             if (unclean) {
                 Logger.info(SESSION_TAG, "Previous game session did not exit cleanly, forcing full verification")
             }
@@ -378,6 +406,7 @@ class GameVerifySession private constructor(
                     previous.generationKey == generationKey
             return GameVerifySession(
                 baseDir = baseDir,
+                stampKey = stampKey,
                 stampFile = stampFile,
                 generationKey = generationKey,
                 previous = previous,

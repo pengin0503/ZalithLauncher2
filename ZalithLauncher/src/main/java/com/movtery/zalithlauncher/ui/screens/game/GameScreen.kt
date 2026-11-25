@@ -82,6 +82,7 @@ import com.movtery.zalithlauncher.game.sdl.SdlBridge
 import com.movtery.zalithlauncher.game.sdl.SdlTextSender
 import com.movtery.zalithlauncher.game.support.touch_controller.touchControllerInputModifier
 import com.movtery.zalithlauncher.game.support.touch_controller.touchControllerTouchModifier
+import com.movtery.zalithlauncher.game.version.download.VerifyStampStore
 import com.movtery.zalithlauncher.game.version.installed.Version
 import com.movtery.zalithlauncher.setting.ControlSettings
 import com.movtery.zalithlauncher.setting.GameUiSettings
@@ -607,6 +608,8 @@ fun GameScreen(
         operation = viewModel.forceCloseState,
         onChange = { viewModel.forceCloseState = it },
         onForceClose = {
+            //强制关闭不是正常退出，保留会话标记以便下次启动全量校验
+            VerifyStampStore.markForceClosed()
             ZLNativeInvoker.jvmExit(0, false)
         },
         text = stringResource(R.string.game_menu_option_force_close_text)
