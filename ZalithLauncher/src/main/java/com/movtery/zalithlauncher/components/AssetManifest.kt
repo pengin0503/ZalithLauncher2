@@ -160,6 +160,23 @@ suspend fun verifyComponentDirectory(
         if (calculateFileSha1(file) != expected.sha1) return false
     }
 
+    return componentDirectoryMatches(directory, files, ignoredFiles)
+}
+
+/**
+ * 仅校验目录内的文件集合是否与清单一致（不读取文件内容）
+ * @param directory 待校验的组件目录
+ * @param files 预期的安装文件
+ * @param ignoredFiles 扫描额外文件时忽略的相对路径
+ * @return 所有预期文件存在且没有未忽略的额外文件时返回 true
+ */
+fun componentDirectoryMatches(
+    directory: File,
+    files: List<ComponentFile>,
+    ignoredFiles: Set<String> = emptySet()
+): Boolean {
+    if (!directory.isDirectory) return false
+
     val expectedPaths = files.mapTo(HashSet(files.size)) { it.outputPath }
     val actualPaths = directory.walkTopDown()
         .filter { it.isFile }

@@ -44,7 +44,12 @@ class DownloadTask(
      * 是否本身是可以被下载的，如果不可下载，则只允许以目标文件已存在的形式满足，
      * 若强行下载会以 404 失败
      */
-    val isDownloadable: Boolean = true
+    val isDownloadable: Boolean = true,
+    /**
+     * 是否永远整文件哈希、禁止被验证 stamp 跳过。
+     * client jar（版本主 jar）必须保持 true：它是“确证游戏本体未损坏”的最后一道防线。
+     */
+    val alwaysHash: Boolean = false
 ) {
     init {
         require(urls.isNotEmpty()) { "DownloadTask requires at least one url" }

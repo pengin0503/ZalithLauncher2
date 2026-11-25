@@ -25,6 +25,7 @@ import com.movtery.zalithlauncher.game.path.getGameHome
 import com.movtery.zalithlauncher.game.versioninfo.models.GameManifest
 import com.movtery.zalithlauncher.game.versioninfo.models.VersionManifest
 import com.movtery.zalithlauncher.ui.androidText
+import com.movtery.zalithlauncher.utils.file.calculateFileSha1
 import com.movtery.zalithlauncher.utils.file.formatFileSize
 import com.movtery.zalithlauncher.utils.logging.Logger
 import com.movtery.zalithlauncher.utils.string.getMessageOrToString
@@ -58,6 +59,9 @@ class MinecraftDownloader(
 ) {
     private var allDownloadTasks = mutableListOf<DownloadTask>()
 
+    /** 验证 stamp 世代键的组成片段，随下载任务装配过程累积 */
+    private val verifyGenerationParts = mutableListOf<String>()
+
     private fun <R> getTaskMessage(
         download: R,
         verify: R
@@ -82,13 +86,24 @@ class MinecraftDownloader(
                 task.updateMessage(
                     getTaskMessage(androidText(R.string.minecraft_download_stat_download_task), null)
                 )
+                var verifySession: GameVerifySession? = null
+                verifyGenerationParts.clear()
                 if (mode == DownloadMode.DOWNLOAD) {
                     progressNewDownloadTasks(clientName, clientVersionsDir)
                 } else {
                     val jsonFile = downloader.getVersionJsonPath(customName).takeIf { it.canRead() } ?: throw IOException("Version $customName JSON file is unreadable.")
                     val jsonText = jsonFile.readText()
                     val gameManifest = jsonText.parseTo(GameManifest::class.java)
+
+                    verifyGenerationParts.add("policy:$VERIFY_STAMP_POLICY_VERSION")
+                    verifyGenerationParts.add("version-json:${VerifyStampStore.sha1Hex(jsonText)}")
                     progressDownloadTasks(gameManifest, clientName)
+
+                    verifySession = GameVerifySession.open(
+                        versionId = customName,
+                        baseDir = File(gameHome),
+                        generationKey = VerifyStampStore.generationKey(verifyGenerationParts)
+                    )
                 }
 
                 if (allDownloadTasks.isNotEmpty()) {
@@ -103,7 +118,8 @@ class MinecraftDownloader(
                                 snapshot.downloadedFiles, snapshot.totalFiles,
                                 formatFileSize(snapshot.downloadedBytes), formatFileSize(snapshot.totalBytes)
                             ))
-                        }
+                        },
+                        verifySession = verifySession
                     )
                 }
                 //清除任务信息
@@ -174,12 +190,22 @@ class MinecraftDownloader(
     ) {
         val assetsIndex = downloader.createAssetIndex(downloader.assetIndexTarget, gameManifest)
 
+        //世代键包含 assets 索引文件内容；索引缺失时退回清单声明的 SHA-1
+        val assetIndexFile = File(downloader.assetIndexTarget, "${gameManifest.assets}.json")
+        val assetIndexHash = if (assetIndexFile.isFile) {
+            runCatching { calculateFileSha1(assetIndexFile) }.getOrNull()
+        } else {
+            gameManifest.rawAssetIndex?.sha1
+        }
+        verifyGenerationParts.add("asset-index:${assetIndexHash ?: ""}")
+
         downloader.loadClientJarDownload(
             gameManifest = gameManifest,
             clientName = clientName,
             mcFolder = clientVersionsDir,
             scheduleDownload = { urls, hash, targetFile, size ->
-                scheduleDownload(urls, hash, targetFile, size)
+                //client jar 是主文件，永远整文件哈希，绝不走 stamp 跳过
+                scheduleDownload(urls, hash, targetFile, size, alwaysHash = true)
             },
             scheduleCopy = { targetFile ->
                 inheritsFrom?.let { inheritsFrom ->
@@ -202,6 +228,8 @@ class MinecraftDownloader(
             scheduleDownload(urls, hash, targetFile, size)
         }
         downloader.loadLibraryDownloads(gameManifest) { urls, hash, targetFile, size, isDownloadable ->
+            val relativePath = VerifyStampStore.relativePath(File(gameHome), targetFile) ?: targetFile.absolutePath
+            verifyGenerationParts.add("library:$relativePath:${hash ?: ""}")
             scheduleDownload(urls, hash, targetFile, size, isDownloadable)
         }
     }
@@ -209,7 +237,14 @@ class MinecraftDownloader(
     /**
      * 提交计划下载
      */
-    private fun scheduleDownload(urls: List<String>, sha1: String?, targetFile: File, size: Long, isDownloadable: Boolean = true) {
+    private fun scheduleDownload(
+        urls: List<String>,
+        sha1: String?,
+        targetFile: File,
+        size: Long,
+        isDownloadable: Boolean = true,
+        alwaysHash: Boolean = false
+    ) {
         allDownloadTasks.add(
             DownloadTask(
                 urls = urls,
@@ -217,7 +252,8 @@ class MinecraftDownloader(
                 targetFile = targetFile,
                 sha1 = sha1,
                 size = size,
-                isDownloadable = isDownloadable
+                isDownloadable = isDownloadable,
+                alwaysHash = alwaysHash
             )
         )
     }

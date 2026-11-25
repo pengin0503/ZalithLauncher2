@@ -43,6 +43,7 @@ class PathManager {
         lateinit var DIR_MULTIRT: File
         lateinit var DIR_JNA: File
         lateinit var DIR_COMPONENTS: File
+        lateinit var DIR_VERIFY_STAMPS: File
         lateinit var DIR_MOUSE_POINTER: File
         lateinit var DIR_BACKGROUND: File
         lateinit var DIR_CACHE_GAME_DOWNLOADER: File
@@ -89,6 +90,7 @@ class PathManager {
             DIR_MULTIRT = File(DIR_GAME, "runtimes")
             DIR_JNA = File(DIR_GAME, "jna_dir")
             DIR_COMPONENTS = File(DIR_FILES_PRIVATE, "components")
+            DIR_VERIFY_STAMPS = File(DIR_FILES_PRIVATE, "verify-stamps")
             DIR_MOUSE_POINTER = File(DIR_FILES_PRIVATE, "mouse_pointer")
             DIR_BACKGROUND = File(DIR_FILES_PRIVATE, "background")
             DIR_CACHE_GAME_DOWNLOADER = File(DIR_CACHE, "temp_game")
@@ -120,7 +122,7 @@ class PathManager {
         private fun createDirs() {
             listOfNotNull(
                 DIR_RUNTIME_MOD, DIR_GAME, DIR_ACCOUNT_SKIN, DIR_ACCOUNT_CAPE, DIR_MULTIRT,
-                DIR_JNA, DIR_COMPONENTS, DIR_MOUSE_POINTER, DIR_BACKGROUND,
+                DIR_JNA, DIR_COMPONENTS, DIR_VERIFY_STAMPS, DIR_MOUSE_POINTER, DIR_BACKGROUND,
                 DIR_CACHE_GAME_DOWNLOADER, DIR_CACHE_MODPACK_DOWNLOADER, DIR_CACHE_MODPACK_EXPORTER,
                 DIR_CACHE_SAVE_EXPORTER, DIR_CACHE_MOD_UPDATER, DIR_CACHE_APP_ICON, DIR_CACHE_HOME_PAGE,
                 DIR_LAUNCHER_LOGS, DIR_NATIVE_LOGS, DIR_IMAGE_CACHE, DIR_CONTROL_LAYOUTS,

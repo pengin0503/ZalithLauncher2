@@ -48,6 +48,7 @@ import com.movtery.zalithlauncher.game.renderer.getSfpewLibraryPath
 import com.movtery.zalithlauncher.game.renderer.isSfpewEnabledFor
 import com.movtery.zalithlauncher.game.renderer.prepareRendererLaunchConfig
 import com.movtery.zalithlauncher.game.support.touch_controller.ControllerProxy
+import com.movtery.zalithlauncher.game.version.download.VerifyStampStore
 import com.movtery.zalithlauncher.game.version.installed.GraphicsApi
 import com.movtery.zalithlauncher.game.version.installed.Version
 import com.movtery.zalithlauncher.game.version.installed.VersionInfoParser
@@ -286,13 +287,18 @@ class GameLauncher(
 
         tryStartTouchProxy()
 
-        return launchJvm(
+        //标记会话已开始：若进程在正常返回前死亡，下次启动将强制全量校验游戏文件
+        VerifyStampStore.markSessionRunning()
+        val exitCode = launchJvm(
             context = activity,
             jvmArgs = launchArgs,
             userHome = version.getGameHome(),
             userArgs = customArgs,
             screenSize = screenSize
         )
+        //仅正常退出（code == 0）才清除标记，崩溃/被杀会留下标记
+        VerifyStampStore.onGameSessionExited(exitCode)
+        return exitCode
     }
 
     override fun getRuntimeLibraryPath(): String {
