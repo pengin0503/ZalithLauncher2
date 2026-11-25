@@ -119,6 +119,35 @@ abstract class Launcher(
 
     private fun getJavaHome() = if (runtime.isJDK8) "$runtimeHome/jre" else runtimeHome
 
+    /**
+     * 大核 CPU id 列表（按 cpuinfo_max_freq 的最高频簇识别，至少 2 个才算命中）。
+     * null 表示系统未暴露频率信息或识别失败，此时保持原有行为（不设置 affinity）。
+     */
+    private val bigCoreCpuIds: List<Int>? by lazy { detectBigCoreCpuIds() }
+
+    private fun detectBigCoreCpuIds(): List<Int>? {
+        val cpuDirs = File("/sys/devices/system/cpu").listFiles { file ->
+            file.isDirectory && file.name.matches(Regex("cpu\\d+"))
+        } ?: return null
+
+        val frequencies = cpuDirs.mapNotNull { dir ->
+            val cpuId = dir.name.removePrefix("cpu").toIntOrNull() ?: return@mapNotNull null
+            val maxFreq = runCatching {
+                File(dir, "cpufreq/cpuinfo_max_freq").readText().trim().toLong()
+            }.getOrNull() ?: return@mapNotNull null
+            if (maxFreq <= 0L) null else cpuId to maxFreq
+        }.sortedBy { it.first }
+
+        if (frequencies.size < 2) return null
+
+        // 与最高频率相差 10% 以内的核心视为同一大核簇（CORE_PLAN_A §3）
+        val highestFreq = frequencies.maxOf { it.second }
+        val bigCoreIds = frequencies
+            .filter { it.second >= highestFreq * 9 / 10 }
+            .map { it.first }
+        return bigCoreIds.takeIf { it.size >= 2 }
+    }
+
     abstract suspend fun launch(screenSize: IntSize): Int
     abstract fun chdir(): String
     abstract fun getLogFile(): File
@@ -358,8 +387,11 @@ abstract class Launcher(
         // We don't have jemalloc for our LWJGL so set the allocator to system to avoid error logs
         args.add("-Dorg.lwjgl.system.allocator=system")
 
-        // Some phones are not using the right number of cores, fix that
-        args.add("-XX:ActiveProcessorCount=${java.lang.Runtime.getRuntime().availableProcessors()}")
+        // 识别到大核簇时让 JVM 的 GC/JIT/ForkJoin 线程数与 affinity 保持一致；
+        // 识别失败则保持原来的全核数量（CORE_PLAN_A F1-4）
+        val activeProcessorCount = bigCoreCpuIds?.size
+            ?: java.lang.Runtime.getRuntime().availableProcessors()
+        args.add("-XX:ActiveProcessorCount=$activeProcessorCount")
 
         // Disable hsperfdata (the mmap'd perf counter file): nothing on Android reads it,
         // so this avoids its startup writes and resident pages. No gameplay effect.
@@ -513,6 +545,13 @@ abstract class Launcher(
             if (RendererSettings.dumpShaders.getValue()) map["LIBGL_VGPU_DUMP"] = "1"
             if (RendererSettings.zinkPreferSystemDriver.getValue()) map["POJAV_ZINK_PREFER_SYSTEM_DRIVER"] = "1"
             if (RendererSettings.vsyncInZink.getValue()) map["POJAV_VSYNC_IN_ZINK"] = "1"
+
+            // CORE_PLAN_A F1-4: native 侧据此把 JVM/游戏线程固定到大核；
+            // 识别失败时不设置，native 保持默认 affinity。
+            bigCoreCpuIds?.let { ids ->
+                map["ZALITH_CPU_IDS"] = ids.joinToString(",")
+                map["ZALITH_ACTIVE_CPUS"] = ids.size.toString()
+            }
 
             if (FFmpegPluginManager.isAvailable) map["POJAV_FFMPEG_PATH"] = FFmpegPluginManager.executablePath!!
         }

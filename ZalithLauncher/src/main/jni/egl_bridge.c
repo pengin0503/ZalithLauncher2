@@ -28,9 +28,13 @@
 #include <environ/environ.h>
 #include <android/dlext.h>
 #include <time.h>
+#include <errno.h>
+#include <pthread.h>
+#include <stdatomic.h>
 #include "utils.h"
 #include "ctxbridges/bridge_tbl.h"
 #include "ctxbridges/osm_bridge.h"
+#include "ctxbridges/surface_wait.h"
 
 #define GLFW_CLIENT_API 0x22001
 /* Consider GLFW_NO_API as Vulkan API */
@@ -47,6 +51,58 @@ struct PotatoBridge potatoBridge;
 
 // MC 最近一次请求的交换间隔；-1 表示尚未请求
 static int lastSwapInterval = -1;
+
+/*
+ * FF-F1-2: event-driven surface hand-off.
+ *
+ * The GL thread used to sleep for a fixed 750 ms when a surface died before its
+ * replacement arrived. setupBridgeWindow() now bumps this generation (and wakes
+ * waiters) as soon as the new ANativeWindow is installed, so the GL thread can
+ * continue immediately; the 750 ms is only a maximum fallback wait.
+ *
+ * A condition variable is used instead of a raw futex because the existing code
+ * has no futex plumbing and this path is called at most once per surface change.
+ * The generation itself is atomic so readers do not need the mutex.
+ */
+static pthread_mutex_t g_surfaceGenerationLock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t g_surfaceGenerationCond = PTHREAD_COND_INITIALIZER;
+static _Atomic uint64_t g_surfaceGeneration = 0;
+
+uint64_t zalith_surface_generation(void) {
+    return atomic_load_explicit(&g_surfaceGeneration, memory_order_acquire);
+}
+
+void zalith_surface_generation_bump(void) {
+    pthread_mutex_lock(&g_surfaceGenerationLock);
+    atomic_fetch_add_explicit(&g_surfaceGeneration, 1, memory_order_release);
+    pthread_cond_broadcast(&g_surfaceGenerationCond);
+    pthread_mutex_unlock(&g_surfaceGenerationLock);
+}
+
+uint64_t zalith_surface_wait_for_change(uint64_t expected_generation, int timeout_ms) {
+    struct timespec deadline;
+    // PTHREAD_COND_INITIALIZER uses CLOCK_REALTIME, so the deadline must use it too.
+    clock_gettime(CLOCK_REALTIME, &deadline);
+    deadline.tv_sec += timeout_ms / 1000;
+    deadline.tv_nsec += (long) (timeout_ms % 1000) * 1000000L;
+    if (deadline.tv_nsec >= 1000000000L) {
+        deadline.tv_sec += 1;
+        deadline.tv_nsec -= 1000000000L;
+    }
+
+    uint64_t generation;
+    pthread_mutex_lock(&g_surfaceGenerationLock);
+    while ((generation = atomic_load_explicit(&g_surfaceGeneration, memory_order_acquire))
+           == expected_generation) {
+        if (pthread_cond_timedwait(&g_surfaceGenerationCond, &g_surfaceGenerationLock,
+                                   &deadline) == ETIMEDOUT) {
+            generation = atomic_load_explicit(&g_surfaceGeneration, memory_order_acquire);
+            break;
+        }
+    }
+    pthread_mutex_unlock(&g_surfaceGenerationLock);
+    return generation;
+}
 
 void* loadTurnipVulkan(const char* driver_path, const char* native_dir, const char* cache_dir);
 void calculateFPS();
@@ -86,16 +142,24 @@ JNIEXPORT void JNICALL Java_com_movtery_zalithlauncher_bridge_ZLBridge_setupBrid
     // 生产者状态会随新窗口重置，若不重新应用，MC 不会再次发起交换间隔调用，帧率会退回锁定在屏幕刷新率
     bool windowRecreated = pojav_environ->pojavWindow != NULL;
     pojav_environ->pojavWindow = ANativeWindow_fromSurface(env, surface);
-    if (windowRecreated && pojav_environ->config_renderer != RENDERER_VULKAN) {
+    if (windowRecreated && pojav_environ->pojavWindow != NULL && pojav_environ->config_renderer != RENDERER_VULKAN) {
         if (lastSwapInterval >= 0) setNativeWindowSwapInterval(pojav_environ->pojavWindow, lastSwapInterval);
         else if (!getenv("POJAV_VSYNC_IN_ZINK")) setNativeWindowSwapInterval(pojav_environ->pojavWindow, 0);
     }
     if (br_setup_window) br_setup_window();
+    if (pojav_environ->pojavWindow != NULL) {
+        // FF-F1-2: wake the GL thread waiting for a replacement surface.
+        zalith_surface_generation_bump();
+    } else {
+        printf("EGLBridge: setupBridgeWindow got a NULL ANativeWindow, keeping fallback path\n");
+    }
 }
 
 JNIEXPORT void JNICALL
 Java_com_movtery_zalithlauncher_bridge_ZLBridge_releaseBridgeWindow(ABI_COMPAT JNIEnv *env, ABI_COMPAT jclass clazz) {
-    ANativeWindow_release(pojav_environ->pojavWindow);
+    if (pojav_environ->pojavWindow != NULL) {
+        ANativeWindow_release(pojav_environ->pojavWindow);
+    }
 }
 
 EXTERNAL_API void* pojavGetCurrentContext() {
@@ -225,14 +289,21 @@ EXTERNAL_API int pojavInit() {
         printf("pojavInit: GLFW bridge is not initialized\n");
         return 0;
     }
-    ANativeWindow_acquire(pojav_environ->pojavWindow);
-    pojav_environ->savedWidth = ANativeWindow_getWidth(pojav_environ->pojavWindow);
-    pojav_environ->savedHeight = ANativeWindow_getHeight(pojav_environ->pojavWindow);
-    ANativeWindow_setBuffersGeometry(pojav_environ->pojavWindow,pojav_environ->savedWidth,pojav_environ->savedHeight,AHARDWAREBUFFER_FORMAT_R8G8B8X8_UNORM);
-    updateMonitorSize(pojav_environ->savedWidth, pojav_environ->savedHeight);
+    if (pojav_environ->pojavWindow != NULL) {
+        ANativeWindow_acquire(pojav_environ->pojavWindow);
+        pojav_environ->savedWidth = ANativeWindow_getWidth(pojav_environ->pojavWindow);
+        pojav_environ->savedHeight = ANativeWindow_getHeight(pojav_environ->pojavWindow);
+        ANativeWindow_setBuffersGeometry(pojav_environ->pojavWindow,pojav_environ->savedWidth,pojav_environ->savedHeight,AHARDWAREBUFFER_FORMAT_R8G8B8X8_UNORM);
+        updateMonitorSize(pojav_environ->savedWidth, pojav_environ->savedHeight);
+    } else {
+        // FF-F1-2: the surface may not have reached setupBridgeWindow yet. Do not
+        // dereference it here; gl_swap_surface() will use the 1x1 pbuffer fallback
+        // until a real window arrives.
+        printf("pojavInit: pojavWindow is NULL, skipping window setup and using pbuffer fallback\n");
+    }
     pojavInitOpenGL();
     // 垂直同步开关关闭时主动切入异步模式，解除帧率对屏幕刷新率的锁定；开启时交由 MC 的交换间隔调用决定
-    if (pojav_environ->config_renderer != RENDERER_VULKAN && !getenv("POJAV_VSYNC_IN_ZINK")) {
+    if (pojav_environ->pojavWindow != NULL && pojav_environ->config_renderer != RENDERER_VULKAN && !getenv("POJAV_VSYNC_IN_ZINK")) {
         setNativeWindowSwapInterval(pojav_environ->pojavWindow, 0);
     }
     return 1;
