@@ -242,7 +242,6 @@
     <string name="settings_launcher_log_share_packing">Đang nén log</string>
     <string name="about_acknowledgements_title">Lời cảm ơn</string>
     <string name="about_acknowledgements_pojav_text">%s dùng backend từ PojavLauncher</string>
-    <string name="about_acknowledgements_modrinth_text">%s dùng các mẫu hoạt ảnh mô hình người chơi từ Modrinth</string>
     <string name="about_acknowledgements_pcl_text">%s tham khảo code PCL2</string>
     <string name="about_acknowledgements_fcl_text">%s dùng và tham khảo code từ FCL</string>
     <string name="about_acknowledgements_hmcl_text">%s dùng và tham khảo code từ HMCL</string>
@@ -972,7 +971,6 @@
     <string name="sort_by_last_modified">Sắp theo lần sửa cuối</string>
     <string name="sort_by_last_played">Sắp theo lần chơi cuối</string>
     <string name="generic_follow_system">Theo hệ thống</string>
-    <string name="notification_data_terracotta_message">Khi chơi mạng, launcher dùng dịch vụ nền để hiện trạng thái, cần quyền thông báo.</string>
     <string name="game_menu_option_menu_ball_opacity">Độ mờ menu thả</string>
     <string name="versions_manage_pin">Ghim</string>
     <string name="settings_control_mouse_enable_click_title">Touchpad</string>

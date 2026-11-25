@@ -123,7 +123,6 @@
     <string name="notification_data_jvm_service_message">Para garantir uma instalação tranquila, o launcher precisa executar o instalador em primeiro plano. Tentaremos iniciar um serviço em primeiro plano para manter a estabilidade, mas isso requer permissões de notificação. Você poderia nos ajudar a habilitar as permissões de notificação? Isso ajudará a evitar interrupções na instalação!</string>
     <string name="notification_data_jvm_service_name">Serviço de Instalação em Primeiro Plano</string>
     <string name="notification_data_jvm_service_running">Instalando o jogo via serviço em primeiro plano</string>
-    <string name="notification_data_terracotta_message">Durante sessões multijogador, o launcher usa um serviço em primeiro plano para exibir o status da conexão atual, portanto, a permissão de notificação é necessária.</string>
     <string name="microphone_check_title">Verificar entrada do microfone</string>
     <string name="microphone_check_volume">Volume: %d</string>
     <string name="microphone_check_no_permissions">Permissão do microfone não concedida a o Launcher</string>
@@ -1008,7 +1007,6 @@
     <string name="about_sponsor">Apoio de patrocínio</string>
     <string name="about_acknowledgements_title">Agradecimentos</string>
     <string name="about_acknowledgements_pojav_text">%s usa o backend de inicialização do PojavLauncher</string>
-    <string name="about_acknowledgements_modrinth_text">%s porta as predefinições de animação do modelo de jogador do Modrinth</string>
     <string name="about_acknowledgements_pcl_text">%s referencia partes da implementação do PCL2</string>
     <string name="about_acknowledgements_fcl_text">%s incorpora código do FCL e faz referência a partes de sua implementação</string>
     <string name="about_acknowledgements_hmcl_text">%s incorpora código do HMCL e faz referência a partes de sua implementação</string>

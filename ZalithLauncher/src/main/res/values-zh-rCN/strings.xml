@@ -166,7 +166,6 @@
     <string name="notification_data_jvm_service_message">为了让安装顺利进行，启动器需要在前台运行安装器。我们会尝试启动一个前台服务来确保稳定性，不过这需要开启通知权限。能帮我们开启通知权限吗？这样可以避免安装中断哦！</string>
     <string name="notification_data_jvm_service_name">前台安装服务</string>
     <string name="notification_data_jvm_service_running">正在前台服务安装游戏中</string>
-    <string name="notification_data_terracotta_message">在多人联机的过程中，启动器会使用前台服务来显示当前联机状态，因此需要您开启通知权限。</string>
     <string name="notification_jvm_running_name">JVM 保活服务</string>
     <string name="notification_task_service_name">任务保活服务</string>
     <string name="notification_task_service_running">正在后台运行任务，请保持启动器运行</string>
@@ -1359,7 +1358,6 @@
     <string name="sponsors_last_month_summary">以下为上个月赞助支持 %s 的赞助者，感谢大家的支持！</string>
     <string name="about_acknowledgements_title">鸣谢</string>
     <string name="about_acknowledgements_pojav_text">%s 使用了 PojavLauncher 的启动后端</string>
-    <string name="about_acknowledgements_modrinth_text">%s 移植了 Modrinth 的玩家模型动画预设</string>
     <string name="about_acknowledgements_pcl_text">%s 参考了 PCL2 部分代码实现</string>
     <string name="about_acknowledgements_fcl_text">%s 引用了 FCL 部分代码，参考了部分代码实现</string>
     <string name="about_acknowledgements_hmcl_text">%s 引用了 HMCL 部分代码，参考了部分代码实现</string>

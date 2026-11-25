@@ -109,8 +109,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.graphics.createBitmap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.movtery.petlib.ArmModel
-import com.movtery.petlib.PetAnimation
 import com.movtery.zalithlauncher.BuildKeys
 import com.movtery.zalithlauncher.R
 import com.movtery.zalithlauncher.game.account.Account
@@ -128,7 +126,6 @@ import com.movtery.zalithlauncher.game.account.isSkinChangeAllowed
 import com.movtery.zalithlauncher.game.account.wardrobe.EmptyCape
 import com.movtery.zalithlauncher.game.account.wardrobe.SkinModelType
 import com.movtery.zalithlauncher.game.account.wardrobe.capeLocalRes
-import com.movtery.zalithlauncher.game.account.wardrobe.toArmModel
 import com.movtery.zalithlauncher.game.account.yggdrasil.PlayerProfile
 import com.movtery.zalithlauncher.game.account.yggdrasil.findUsing
 import com.movtery.zalithlauncher.game.account.yggdrasil.getFile
@@ -143,7 +140,6 @@ import com.movtery.zalithlauncher.ui.components.IconTextButton
 import com.movtery.zalithlauncher.ui.components.ImePanContainer
 import com.movtery.zalithlauncher.ui.components.MarqueeText
 import com.movtery.zalithlauncher.ui.components.OwnOutlinedTextField
-import com.movtery.zalithlauncher.ui.components.PetModelView
 import com.movtery.zalithlauncher.ui.components.PositionButton
 import com.movtery.zalithlauncher.ui.components.PositionFilledTonalButton
 import com.movtery.zalithlauncher.ui.components.RadioCard
@@ -1421,7 +1417,6 @@ fun ChangeSkinDialog(
 
     var isFetchingCapes by remember { mutableStateOf(false) }
 
-    var currentCapeToLoad by remember { mutableStateOf(EmptyCape) }
     var currentUsingCape by remember { mutableStateOf(EmptyCape) }
 
     LaunchedEffect(availableCapes) {
@@ -1430,36 +1425,9 @@ fun ChangeSkinDialog(
                 isFetchingCapes = false
                 val currentUsingCape0 = availableCapes.findUsing() ?: EmptyCape
                 currentUsingCape = currentUsingCape0
-                currentCapeToLoad = currentUsingCape0
             } else {
                 isFetchingCapes = true
                 onFetchCapes()
-            }
-        }
-    }
-
-    // 加载披风
-    val previewCape by produceState<ByteArray?>(null, currentCapeToLoad, availableCapes) {
-        if (!account.isMicrosoftAccount()) return@produceState
-
-        value = withContext(Dispatchers.IO) {
-            if (currentCapeToLoad != EmptyCape) {
-                // 列表已加载完成才会走到这里
-                runCatching {
-                    currentCapeToLoad
-                        .getFile(PathManager.DIR_ACCOUNT_CAPE)
-                        .inputStream()
-                        .use { it.readBytes() }
-                }.getOrNull()
-            } else if (availableCapes == null && account.getCapeFile().exists()) {
-                // 列表就绪前若本地有缓存披风则优先显示，列表加载完或切换时更新 ↑
-                runCatching {
-                    account.getCapeFile()
-                        .inputStream()
-                        .use { it.readBytes() }
-                }.getOrNull()
-            } else {
-                null
             }
         }
     }
@@ -1468,29 +1436,6 @@ fun ChangeSkinDialog(
         rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
             uri?.let(onSkinPicked)
         }
-
-    // 皮肤状态变化时重载预览皮肤
-    val previewSkin by produceState<ByteArray?>(null, skinState) {
-        value = withContext(Dispatchers.IO) {
-            when (skinState) {
-                ChangeSkin.None -> account.getSkinFile()
-                    .takeIf { it.exists() }
-                    ?.inputStream()
-                    ?.use { it.readBytes() }
-                is ChangeSkin.ChangeSkinData -> runCatching {
-                    skinState.cacheFile
-                        .inputStream()
-                        .use { it.readBytes() }
-                }.getOrNull()
-                ChangeSkin.ResetSkin -> null
-            }
-        }
-    }
-    val previewArm = when (skinState) {
-        ChangeSkin.None -> account.skinModelType.toArmModel()
-        is ChangeSkin.ChangeSkinData -> skinState.data.getModelType().toArmModel()
-        ChangeSkin.ResetSkin -> ArmModel.Classic
-    }
 
     AppDialog(
         onDismissRequest = onDismissRequest,
@@ -1525,25 +1470,6 @@ fun ChangeSkinDialog(
                         modifier = Modifier.weight(1f),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .weight(1f)
-                                .clip(MaterialTheme.shapes.large)
-                                .background(itemColor(false)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            PetModelView(
-                                modifier = Modifier.fillMaxSize(),
-                                skin = previewSkin,
-                                cape = previewCape,
-                                arm = previewArm,
-                                animation = PetAnimation.Walking,
-                                animationSpeed = 0.8f,
-                                gazeEnabled = false
-                            )
-                        }
-
                         Column(
                             modifier = Modifier
                                 .weight(1f)
@@ -1739,7 +1665,6 @@ fun ChangeSkinDialog(
                     ChangeCape.None
                 }
                 onCapeStateChange(state)
-                currentCapeToLoad = cape
                 showCapeSelector = false
             },
             onDismiss = {

@@ -624,7 +624,6 @@
     <string name="settings_launcher_mirror_official">De fontes oficiais</string>
     <string name="settings_launcher_mirror_mirror">Do espelho</string>
     <string name="about_acknowledgements_pojav_text">%s utiliza o backend do PojavLauncher</string>
-    <string name="about_acknowledgements_modrinth_text">%s porta as predefinições de animação do modelo de jogador do Modrinth</string>
     <string name="about_acknowledgements_bangbang93_text">%s utiliza a API BMCL da fonte mirror</string>
     <string name="about_acknowledgements_title">Agradecimentos</string>
     <string name="about_acknowledgements_pcl_text">%s retribui parte da implementação do PCL2</string>
@@ -841,7 +840,6 @@
     <string name="error_bad_gateway">(%s) O servidor recebeu uma resposta inválida de um servidor upstream</string>
     <string name="error_service_unavailable">(%s) O servidor está temporariamente indisponível para processar a solicitação</string>
     <string name="error_gateway_timeout">(%s) O servidor não recebeu uma resposta em tempo hábil resposta</string>
-    <string name="notification_data_terracotta_message">Durante sessões multijogador, o launcher usa um serviço em primeiro plano para exibir o estado da conexão atual, portanto, a permissão de notificação é necessária.</string>
     <string name="notification_jvm_running_name">Serviço Keep-Alive da JVM</string>
     <string name="unpack_screen_jre25">Ambiente Java 25 (necessário para Minecraft 26.1+)</string>
     <string name="unpack_screen_jna">Permite que o Minecraft chame diretamente funções de baixo nível do OS</string>

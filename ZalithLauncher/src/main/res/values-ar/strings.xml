@@ -323,7 +323,6 @@
     <string name="generic_saving">جارٍ الحفظ…</string>
     <string name="generic_follow_system">أتباع اعدادات الهاتف</string>
     <string name="error_unauthorized"> تأكد من صحة بيانات الدخول وحاول مجدداً</string>
-    <string name="notification_data_terracotta_message">أثناء جلسات اللعب الجماعي، يستخدم المشغل خدمة في المقدمة لعرض حالة الاتصال الحالية، لذا يلزم الحصول على إذن الإشعار.</string>
     <string name="version_summary_fools_trendy_update">المستقبل هنا! لقد أضفنا التكنولوجيا الحديثة إلى Minecraft!</string>
     <string name="version_summary_fools_3d_shareware">لقد عثرنا على نسخة DOS من لعبة Minecraft لعام 1994 في القبو!</string>
     <string name="version_summary_fools_infinite">لقد أضفنا 2 مليار (بالضبط 2,147,483,647) بعدًا جديدًا!</string>
@@ -606,7 +605,6 @@
     <string name="download_addon_id_holder">معرّف المشروع</string>
     <string name="download_addon_id_not_found">لم يتم العثور على المشروع!</string>
     <string name="download_addon_id_unsupported">هذا المشروع غير مدعوم !</string>
-    <string name="about_acknowledgements_modrinth_text">%s ينقل الإعدادات المسبقة لرسوم نموذج اللاعب المتحركة من Modrinth</string>
     <string name="fm_name_conflict">الاسم متعارض مع مدخل موجود بالفعل</string>
     <string name="fm_calculating">يتم المعالجة…</string>
     <string name="fm_property_folders">مجلدات</string>

@@ -228,7 +228,6 @@
     <string name="notification_data_jvm_service_message">เพื่อให้การติดตั้งเป็นไปอย่างราบรื่น ตัวเรียกเกมจำเป็นต้องทำงานในเบื้องหน้า เราจะพยายามเปิดใช้บริการเบื้องหน้าเพื่อความเสถียร แต่จำเป็นต้องขออนุญาตการแจ้งเตือนจากคุณ โปรดช่วยเปิดการอนุญาตการแจ้งเตือนเพื่อป้องกันไม่ให้การติดตั้งหยุดชะงักครับ</string>
     <string name="notification_data_jvm_service_name">บริการติดตั้งในเบื้องหน้า</string>
     <string name="notification_data_jvm_service_running">กำลังติดตั้งเกมโดยบริการเบื้องหน้า</string>
-    <string name="notification_data_terracotta_message">\"ในระหว่างการเล่นโหมดผู้เล่นหลายคน ตัวเรียกใช้งาน จะใช้บริการเบื้องหน้าเพื่อแสดงสถานะการเชื่อมต่อปัจจุบัน จึงจำเป็นต้องขอสิทธิ์การแจ้งเตือน</string>
     <string name="microphone_check_title">ตรวจสอบอินพุตไมโครโฟน</string>
     <string name="microphone_check_volume">ระดับเสียง: %d</string>
     <string name="microphone_check_no_permissions">ไม่ได้อนุญาตสิทธิ์การใช้ไมโครโฟนให้กับรันเชอร์</string>
@@ -442,5 +441,4 @@
     <string name="guide_joystick_events_lock_text4">แตะปุ่มเพื่อแก้ไขอีเวนต์ทริกเกอร์</string>
     <string name="guide_joystick_events_events_text1">อีเวนต์ที่ทริกเกอร์ได้จะเหมือนกับปุ่มปกติ ยืดหยุ่นสูงมาก</string>
     <string name="guide_joystick_events_events_text2">หากต้องการเพียงควบคุมเกม แค่แก้ไขการผูกปุ่มจริงในส่วน “ปุ่ม” ก็พอ</string>
-    <string name="about_acknowledgements_modrinth_text">%s พอร์ตพรีเซ็ตภาพเคลื่อนไหวโมเดลผู้เล่นจาก Modrinth</string>
 </resources>

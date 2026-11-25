@@ -151,7 +151,6 @@
     <string name="notification_data_jvm_service_message">為使安裝順利進行，啟動器需要在前景執行安裝程式。我們會嘗試啟動一個前景服務來確保穩定性，但這需要開啟通知權限。能協助我們開啟通知權限嗎？這樣可以避免安裝中斷喔！</string>
     <string name="notification_data_jvm_service_name">前景安裝服務</string>
     <string name="notification_data_jvm_service_running">正在透過前景服務安裝遊戲中</string>
-    <string name="notification_data_terracotta_message">在多人連線的過程中，啟動器會使用前台服務來顯示當前連線狀態，因此需要您開啟通知權限。</string>
     <string name="notification_jvm_running_name">JVM 保活服務</string>
     <string name="notification_task_service_name">任務保活服務</string>
     <string name="notification_task_service_running">正在背景下執行任務，請保持啟動器運行</string>
@@ -1070,7 +1069,6 @@
     <string name="sponsors_last_month_summary">以下為上個月贊助支持 %s 的贊助者，感謝大家的支持！</string>
     <string name="about_acknowledgements_title">鳴謝</string>
     <string name="about_acknowledgements_pojav_text">%s 使用了 PojavLauncher 的啟動後端</string>
-    <string name="about_acknowledgements_modrinth_text">%s 移植了 Modrinth 的玩家模型動畫預設</string>
     <string name="about_acknowledgements_pcl_text">%s 參考了 PCL2 的部分程式碼實作</string>
     <string name="about_acknowledgements_fcl_text">%s 引用了 FCL 的部分程式碼，並參考其部分實作</string>
     <string name="about_acknowledgements_hmcl_text">%s 引用了 HMCL 的部分程式碼，並參考其部分實作</string>
