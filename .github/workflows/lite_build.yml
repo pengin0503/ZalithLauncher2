@@ -2,9 +2,6 @@ name: Lite Build (arm64 Debug)
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - 'lite/**'
 
 permissions:
   contents: read

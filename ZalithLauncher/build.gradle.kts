@@ -235,13 +235,13 @@ android {
 
     defaultConfig {
         applicationId = zalithPackageName
-        applicationIdSuffix = ".v2"
+        applicationIdSuffix = if (liteBuild) ".v2lite" else ".v2"
         minSdk = 26
         targetSdk = 34
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         versionCode = launcherVersionCode
         versionName = launcherVersionName
-        manifestPlaceholders["launcher_name"] = launcherAPPName
+        manifestPlaceholders["launcher_name"] = if (liteBuild) "Zalith Lite" else launcherAPPName
     }
 
     buildTypes {
