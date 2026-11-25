@@ -8,6 +8,7 @@
 #include <string.h>
 #include <errno.h>
 #include <stdlib.h>
+#include <time.h>
 #include <environ/environ.h>
 
 #include "stdio_is.h"
@@ -27,12 +28,74 @@ static jmethodID logger_onEventLogged;
 static volatile jobject logListener = NULL;
 static int latestlog_fd = -1;
 
+// F1-6: batch fdatasync() instead of syncing on every log line.
+//
+// fdatasync() is only needed to survive power loss / a kernel panic. For a
+// process crash (the common case, and the one this file is read after) the
+// bytes we write() are already in the page cache and remain readable without
+// any sync. So delaying the sync risks losing at most the last <200ms or
+// <64KB of log on power loss, while cutting the number of syncs (0.2-2ms on
+// UFS, vs ~1-3us for write()) by orders of magnitude. Explicit flush points
+// below (log re-init, logger start failure, JVM exit) still sync immediately.
+#define LOG_SYNC_BYTES_THRESHOLD (64 * 1024)
+#define LOG_SYNC_INTERVAL_NS (200LL * 1000LL * 1000LL)
+
+// Guards the batching bookkeeping only. recordBuffer() can be called from the
+// logger thread and from Java threads via LoggerBridge.append(), so the
+// counters need a lock; the write() itself intentionally stays outside it (the
+// writer is not restructured, only the sync decisions are serialized).
+static pthread_mutex_t logSyncLock = PTHREAD_MUTEX_INITIALIZER;
+static size_t unsyncedBytes = 0;
+static struct timespec lastSyncTime;
+
+// Called after every successful write(): sync only once enough data or enough
+// time has accumulated since the last sync.
+static void logSyncAfterWrite(size_t written) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+
+    pthread_mutex_lock(&logSyncLock);
+    unsyncedBytes += written;
+
+    long long elapsedNs =
+            (long long) (now.tv_sec - lastSyncTime.tv_sec) * 1000000000LL +
+            (long long) (now.tv_nsec - lastSyncTime.tv_nsec);
+
+    if (latestlog_fd != -1 &&
+        (unsyncedBytes >= LOG_SYNC_BYTES_THRESHOLD || elapsedNs >= LOG_SYNC_INTERVAL_NS)) {
+        fdatasync(latestlog_fd);
+        unsyncedBytes = 0;
+        lastSyncTime = now;
+    }
+    pthread_mutex_unlock(&logSyncLock);
+}
+
+// Explicit flush point: force out any pending bytes right now (log close /
+// re-init, logger start failure, JVM exit).
+static void logSyncNow(void) {
+    pthread_mutex_lock(&logSyncLock);
+    if (latestlog_fd != -1 && unsyncedBytes > 0) {
+        fdatasync(latestlog_fd);
+        unsyncedBytes = 0;
+    }
+    clock_gettime(CLOCK_MONOTONIC, &lastSyncTime);
+    pthread_mutex_unlock(&logSyncLock);
+}
+
+// Start batching from a clean slate whenever a new log file is opened.
+static void logSyncReset(void) {
+    pthread_mutex_lock(&logSyncLock);
+    unsyncedBytes = 0;
+    clock_gettime(CLOCK_MONOTONIC, &lastSyncTime);
+    pthread_mutex_unlock(&logSyncLock);
+}
+
 static bool recordBuffer(char* buf, ssize_t len) {
     if (strstr(buf, "Session ID is")) return false;
     if (latestlog_fd != -1)
     {
-        write(latestlog_fd, buf, len);
-        fdatasync(latestlog_fd);
+        ssize_t written = write(latestlog_fd, buf, len);
+        if (written > 0) logSyncAfterWrite((size_t) written);
     }
     return true;
 }
@@ -70,6 +133,7 @@ JNIEXPORT void JNICALL
 Java_com_movtery_zalithlauncher_bridge_LoggerBridge_start(JNIEnv *env, __attribute((unused)) jclass clazz, jstring logPath) {
     if (latestlog_fd != -1)
     {
+        logSyncNow(); // explicit flush point: never leave the old log unsynced
         int localfd = latestlog_fd;
         latestlog_fd = -1;
         close(localfd);
@@ -104,11 +168,15 @@ Java_com_movtery_zalithlauncher_bridge_LoggerBridge_start(JNIEnv *env, __attribu
     }
     (*env)->ReleaseStringUTFChars(env, logPath, logFilePath);
 
+    // Start batching from a clean slate for the freshly opened log file.
+    logSyncReset();
+
     /* spawn the logging thread */
     int result = pthread_create(&logger, 0, logger_thread, 0);
 
     if (result != 0)
     {
+        logSyncNow(); // explicit flush point before closing the log
         close(latestlog_fd);
         (*env)->ThrowNew(env, ioeClass, strerror(result));
     }
@@ -116,6 +184,10 @@ Java_com_movtery_zalithlauncher_bridge_LoggerBridge_start(JNIEnv *env, __attribu
 }
 
 _Noreturn void nominal_exit(int code, bool is_signal) {
+    // Explicit flush point: the JVM is going away, so make sure the tail of the
+    // log is on disk even if it is below the batching thresholds.
+    logSyncNow();
+
     JNIEnv *env;
     jint errorCode = (*exitTrap_jvm)->GetEnv(exitTrap_jvm, (void**)&env, JNI_VERSION_1_6);
 

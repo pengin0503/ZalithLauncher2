@@ -360,6 +360,10 @@ abstract class Launcher(
 
         // Some phones are not using the right number of cores, fix that
         args.add("-XX:ActiveProcessorCount=${java.lang.Runtime.getRuntime().availableProcessors()}")
+
+        // Disable hsperfdata (the mmap'd perf counter file): nothing on Android reads it,
+        // so this avoids its startup writes and resident pages. No gameplay effect.
+        args.add("-XX:-UsePerfData")
     }
 
     protected fun MutableList<String>.purgeArg(argStart: String) {
