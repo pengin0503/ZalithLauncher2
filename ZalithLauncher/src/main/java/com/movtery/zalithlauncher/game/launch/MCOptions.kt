@@ -23,6 +23,7 @@ import android.os.Build
 import android.os.FileObserver
 import com.movtery.zalithlauncher.context.copyAssetFile
 import com.movtery.zalithlauncher.game.version.installed.Version
+import com.movtery.zalithlauncher.game.version.installed.utils.isLowerVer
 import com.movtery.zalithlauncher.utils.logging.Logger
 import com.movtery.zalithlauncher.utils.string.splitPreservingQuotes
 import kotlinx.coroutines.CoroutineScope
@@ -40,9 +41,27 @@ import java.util.concurrent.ConcurrentHashMap
 private const val TAG = "MCOptions"
 private const val OBSERVER_DEBOUNCE_MS = 200L
 
+/** 新实例首次创建 options.txt 时使用的完整预设（含旧版本键，兼顾老版本） */
+private const val OPTIONS_PRESET_ASSET = "game/options.txt"
+
+/**
+ * 已存在的 options.txt 补全缺失项时使用的模板（1.18+）。只含现代版本保存时会保留的键：
+ * 若混入 fancyGraphics/clouds/anaglyph3d 等旧键，游戏每次保存都会丢掉它们，
+ * 导致每次启动都“补全”一次并重写文件。
+ */
+private const val OPTIONS_FILL_MODERN_ASSET = "game/options_fill_modern.txt"
+
+/** simulationDistance 自 1.18 起存在；更早的版本沿用完整预设补全 */
+private const val OPTIONS_FILL_MODERN_SINCE = "1.18"
+
 object MCOptions {
     private val lock = Any()
     private val parameterMap = ConcurrentHashMap<String, String>()
+    /**
+     * 自上次 load/save 以来经由 [set] 修改过的键。save() 时若有尚未执行的防抖重载，
+     * 会先从磁盘重载（拿到游戏刚写入的内容），再把这些键覆盖回去，避免互相覆盖。
+     */
+    private val dirtyKeys = HashSet<String>()
     private val observerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var fileObserver: FileObserver? = null
     private var debounceJob: Job? = null
@@ -61,6 +80,7 @@ object MCOptions {
         this.version = version
         synchronized(lock) {
             parameterMap.clear()
+            dirtyKeys.clear()
             debounceJob?.cancel()
             debounceJob = null
             lastLoadedSize = -1L
@@ -85,7 +105,7 @@ object MCOptions {
     private fun File.createWithDefaults(context: Context) {
         runCatching {
             context.copyAssetFile(
-                "game/options.txt",
+                OPTIONS_PRESET_ASSET,
                 parentFile?.absolutePath ?: return,
                 false
             )
@@ -97,7 +117,13 @@ object MCOptions {
     private fun fillMissingDefaults(context: Context) {
         runCatching {
             var added = false
-            context.assets.open("game/options.txt").bufferedReader().useLines { lines ->
+            val mcVer = version.getVersionInfo()?.minecraftVersion ?: version.getVersionName()
+            val template = if (mcVer.isLowerVer(OPTIONS_FILL_MODERN_SINCE)) {
+                OPTIONS_PRESET_ASSET
+            } else {
+                OPTIONS_FILL_MODERN_ASSET
+            }
+            context.assets.open(template).bufferedReader().useLines { lines ->
                 lines.forEach { line ->
                     line.indexOf(':').takeIf { it > 0 }?.let { idx ->
                         val key = line.take(idx)
@@ -136,6 +162,8 @@ object MCOptions {
 
             parameterMap.clear()
             parameterMap.putAll(newMap)
+            //内存中未保存的修改已被磁盘内容替换
+            dirtyKeys.clear()
             lastLoadedSize = size
             lastLoadedMtime = mtime
 
@@ -152,7 +180,10 @@ object MCOptions {
         }
     }
 
-    fun set(key: String, value: String) = parameterMap.put(key, value)
+    fun set(key: String, value: String): String? = synchronized(lock) {
+        dirtyKeys.add(key)
+        parameterMap.put(key, value)
+    }
 
     fun set(key: String, value: List<String>) {
         set(key, value.joinToString(prefix = "[", postfix = "]") { "\"$it\"" })
@@ -175,12 +206,27 @@ object MCOptions {
 
     fun save() {
         synchronized(lock) {
+            //防抖窗口内游戏刚写过 options.txt：先合并磁盘内容，再覆盖本地修改过的键
+            val reloadPending = debounceJob?.isActive == true
             debounceJob?.cancel()
             debounceJob = null
             getOptionsFile().takeIf { it.exists() }?.let { file ->
                 try {
                     fileObserver?.stopWatching()
-                    writeFileAtomically(file)
+                    if (reloadPending) {
+                        val pendingChanges = dirtyKeys.mapNotNull { key ->
+                            parameterMap[key]?.let { key to it }
+                        }
+                        loadInternal()
+                        pendingChanges.forEach { (key, value) ->
+                            parameterMap[key] = value
+                            //loadInternal 会清空 dirtyKeys；写入成功前保持脏标记
+                            dirtyKeys.add(key)
+                        }
+                    }
+                    if (writeFileAtomically(file)) {
+                        dirtyKeys.clear()
+                    }
                     updateLoadedMeta(file)
                 } finally {
                     fileObserver?.startWatching()
@@ -189,20 +235,21 @@ object MCOptions {
         }
     }
 
-    private fun writeFileAtomically(targetFile: File) {
+    /** @return 是否成功写入 */
+    private fun writeFileAtomically(targetFile: File): Boolean {
         val tempFile = File(targetFile.parent, "${targetFile.name}.tmp").apply {
             deleteOnExit()
         }
 
-        runCatching {
+        return runCatching {
             tempFile.writeText(
                 parameterMap.entries.joinToString("\n") { "${it.key}:${it.value}" }
             )
-            tempFile.renameTo(targetFile)
+            check(tempFile.renameTo(targetFile)) { "Failed to rename ${tempFile.name} to ${targetFile.name}" }
         }.onFailure {
             Logger.error(TAG, "Failed to save options.txt!", it)
             tempFile.delete()
-        }
+        }.isSuccess
     }
 
     private fun getOptionsFile() = File(version.getGameDir(), "options.txt")

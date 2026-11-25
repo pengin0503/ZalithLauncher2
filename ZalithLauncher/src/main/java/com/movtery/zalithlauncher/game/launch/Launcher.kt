@@ -123,7 +123,15 @@ abstract class Launcher(
      * 大核 CPU id 列表（按 cpuinfo_max_freq 的最高频簇识别，至少 2 个才算命中）。
      * null 表示系统未暴露频率信息或识别失败，此时保持原有行为（不设置 affinity）。
      */
-    private val bigCoreCpuIds: List<Int>? by lazy { detectBigCoreCpuIds() }
+    private val bigCoreCpuIds: List<Int>? by lazy {
+        if (appliesBigCoreAffinity) detectBigCoreCpuIds() else null
+    }
+
+    /**
+     * 是否把 JVM 固定到大核（CORE_PLAN_A F1-4 只针对游戏线程）。
+     * 只有 [GameLauncher] 返回 true；安装器 / CDS dump 等 [JvmLauncher] 保持全核与默认 affinity。
+     */
+    protected open val appliesBigCoreAffinity: Boolean get() = false
 
     private fun detectBigCoreCpuIds(): List<Int>? {
         val cpuDirs = File("/sys/devices/system/cpu").listFiles { file ->
@@ -568,7 +576,6 @@ abstract class Launcher(
             // 识别失败时不设置，native 保持默认 affinity。
             bigCoreCpuIds?.let { ids ->
                 map["ZALITH_CPU_IDS"] = ids.joinToString(",")
-                map["ZALITH_ACTIVE_CPUS"] = ids.size.toString()
             }
 
             if (FFmpegPluginManager.isAvailable) map["POJAV_FFMPEG_PATH"] = FFmpegPluginManager.executablePath!!

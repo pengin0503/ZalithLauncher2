@@ -18,6 +18,7 @@
 
 package com.movtery.zalithlauncher.game.launch
 
+import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import com.movtery.zalithlauncher.R
@@ -35,6 +36,8 @@ import com.movtery.zalithlauncher.game.account.isReloginRequired
 import com.movtery.zalithlauncher.game.account.microsoft.validateAccessToken
 import com.movtery.zalithlauncher.game.account.refreshMicrosoft
 import com.movtery.zalithlauncher.game.download.game.GameLibDownloader
+import com.movtery.zalithlauncher.game.download.jvm_server.isGameProcessRunning
+import com.movtery.zalithlauncher.game.download.jvm_server.stopGameProcess
 import com.movtery.zalithlauncher.game.renderer.RendererInterface
 import com.movtery.zalithlauncher.game.renderer.Renderers
 import com.movtery.zalithlauncher.game.renderer.detectFpeEmulatorMods
@@ -53,10 +56,12 @@ import com.movtery.zalithlauncher.game.version.installed.utils.isLowerVer
 import com.movtery.zalithlauncher.game.version.mod.AllModReader
 import com.movtery.zalithlauncher.game.version.mod.isEnabled
 import com.movtery.zalithlauncher.game.versioninfo.models.GameManifest
+import com.movtery.zalithlauncher.ui.activities.VMActivity
 import com.movtery.zalithlauncher.ui.activities.runGame
 import com.movtery.zalithlauncher.ui.activities.startGameService
 import com.movtery.zalithlauncher.ui.androidText
 import com.movtery.zalithlauncher.utils.GSON
+import com.movtery.zalithlauncher.utils.logging.Logger
 import com.movtery.zalithlauncher.utils.network.isNetworkAvailable
 import com.movtery.zalithlauncher.utils.string.getMessageOrToString
 import com.movtery.zalithlauncher.viewmodel.ErrorViewModel
@@ -98,6 +103,20 @@ class GameLaunchFlow(scope: CoroutineScope) {
     /** 是否已走到 runGame；进入后不再回收 :game 服务 */
     @Volatile
     private var gameStarted = false
+
+    /**
+     * 即将调用 runGame（拉起 VMActivity）。一旦置位，失败/取消路径不再结束 :game 进程，
+     * 即使 runGame 本身抛出异常（startActivity 可能已经生效）。
+     */
+    @Volatile
+    private var gameHandoffAttempted = false
+
+    /**
+     * 预热前 :game 进程是否已存在。已存在时可能是正在运行的游戏/runJar 会话（也可能只是缓存进程，
+     * 主进程无法区分），因此回收时只 stopService，绝不 kill。
+     */
+    @Volatile
+    private var gameProcessExistedBeforePrewarm = true
 
     /** 提前启动服务时使用的 Context，用于 stopService */
     @Volatile
@@ -149,7 +168,10 @@ class GameLaunchFlow(scope: CoroutineScope) {
         // runGame 不再重复启动服务（重复 startService 本身也是幂等的）。
         servicePrewarmed = false
         gameStarted = false
+        gameHandoffAttempted = false
         prewarmContext = context.applicationContext
+        gameProcessExistedBeforePrewarm =
+            runCatching { isGameProcessRunning(context) }.getOrDefault(true)
         startGameService(context)
         servicePrewarmed = true
 
@@ -218,6 +240,12 @@ class GameLaunchFlow(scope: CoroutineScope) {
 
     /**
      * 启动失败/被取消且尚未进入 runGame 时，停止提前拉起的 :game 服务，避免残留进程
+     *
+     * 仅停止服务时 :game 仍会作为缓存进程留下，下一次安装器 JVM 会因此等待 15 秒再强杀。
+     * 因此在能证明 :game 内没有任何会话时一并结束该进程，证明条件（全部满足）：
+     * 1. 预热前不存在 :game 进程 —— 现存的 :game 只可能是本次预热拉起的；
+     * 2. 本次流程从未尝试 runGame —— 没有为本次启动拉起过 VMActivity；
+     * 3. 本应用的任务栈里没有 VMActivity —— 排除流程期间经由其它入口（如 runJar）进入 :game 的会话。
      */
     private fun stopPrewarmedService() {
         if (!servicePrewarmed || gameStarted) return
@@ -226,8 +254,25 @@ class GameLaunchFlow(scope: CoroutineScope) {
             runCatching {
                 context.stopService(Intent(context, GameService::class.java))
             }
+            if (!gameProcessExistedBeforePrewarm && !gameHandoffAttempted && !hasVMActivityTask(context)) {
+                runCatching { stopGameProcess(context) }.onFailure {
+                    Logger.warning("GameLaunchFlow", "Failed to stop idle :game process", it)
+                }
+            }
         }
     }
+
+    /** 任何属于本应用的任务里存在 VMActivity（作为根或栈顶）即视为有会话正在运行/启动 */
+    private fun hasVMActivityTask(context: Context): Boolean = runCatching {
+        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        val vmActivityName = VMActivity::class.java.name
+        am.appTasks.any { task ->
+            val info = task.taskInfo
+            info.baseActivity?.className == vmActivityName ||
+                info.topActivity?.className == vmActivityName ||
+                info.baseIntent.component?.className == vmActivityName
+        }
+    }.getOrDefault(true) // 无法判断时按“有会话”处理，不 kill
 
     private fun buildLaunchPhases(
         context: Context,
@@ -361,6 +406,7 @@ class GameLaunchFlow(scope: CoroutineScope) {
                     )
                 }
                 //成功拉起 VMActivity 后不再回收预热的 :game 服务
+                gameHandoffAttempted = true
                 runGame(context, version, account)
                 gameStarted = true
                 exitActivity()

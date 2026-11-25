@@ -101,10 +101,12 @@ suspend fun runJvmRetryRuntimes(
     )
 
     if (exitCode != 0) {
+        // 与上游一致：重试链在 21 结束，21 失败不再换 25 重跑
+        // （跳过未安装 JRE 的逻辑只在上面的 usableJre 选择中生效）
         val nextJava: Jre? = when (usableJre) {
             Jre.JRE_8 -> Jre.JRE_17
             Jre.JRE_17 -> Jre.JRE_21
-            Jre.JRE_21 -> Jre.JRE_25
+            Jre.JRE_21 -> null
             Jre.JRE_25 -> null
         }
 

@@ -15,8 +15,9 @@ LOCAL_PATH := $(HERE_PATH)
 # Stage 5-3: arm64-v8a release optimization for the Lite fork.
 # The Lite APK ships arm64-v8a only (-Darch=arm64) and the target device
 # (Reno13 A) uses Cortex-A78-class big cores + Cortex-A55 little cores, so the
-# flags are gated on TARGET_ARCH_ABI; the stock multi-ABI build keeps its
-# generic codegen.
+# flags are gated on LITE_BUILD=1 (passed by Gradle only when -PliteBuild=true)
+# AND TARGET_ARCH_ABI; every non-lite build, including the stock arm64 one,
+# keeps upstream's generic codegen.
 #
 # -mcpu=cortex-a78 makes clang emit ARMv8.2-A code (Cortex-A78 implements
 # ARMv8.2-A). The little Cortex-A55 cores also implement ARMv8.2-A, so the
@@ -26,7 +27,7 @@ LOCAL_PATH := $(HERE_PATH)
 #
 # -flto is deliberately left out (LTO + ByteHook prefab is a known risk) and
 # -ffast-math is deliberately not used (JNI/audio code needs IEEE semantics).
-ifeq ($(TARGET_ARCH_ABI),arm64-v8a)
+ifeq ($(LITE_BUILD)-$(TARGET_ARCH_ABI),1-arm64-v8a)
 LITE_OPT_CFLAGS := -O3 -ffunction-sections -fdata-sections -mcpu=cortex-a78
 LITE_OPT_LDFLAGS := -Wl,--gc-sections
 # Opt in only for modules whose externally-resolved symbols are JNIEXPORT or

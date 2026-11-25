@@ -28,6 +28,8 @@ import android.graphics.SurfaceTexture
 import android.hardware.display.DisplayManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.view.Display
 import android.view.InputDevice
@@ -467,6 +469,22 @@ class VMActivity : BaseAppCompatActivity(), SurfaceTextureListener {
     /** 上一次真正执行 getBitmap 的时刻（elapsedRealtime） */
     private var lastMagnifierCaptureTime = 0L
 
+    /**
+     * 被节流丢弃的帧在节流边界补一次捕获：游戏停止出帧（暂停、加载画面）时，
+     * 放大镜不会一直停留在旧帧上。任何一次真正的捕获都会取消尚未执行的补捕获。
+     */
+    private val magnifierHandler = Handler(Looper.getMainLooper())
+    private var magnifierDeferredCapturePending = false
+    private val deferredMagnifierCapture = Runnable {
+        magnifierDeferredCapturePending = false
+        captureMagnifierFrame()
+    }
+
+    private fun cancelDeferredMagnifierCapture() {
+        magnifierHandler.removeCallbacks(deferredMagnifierCapture)
+        magnifierDeferredCapturePending = false
+    }
+
     private fun captureMagnifierFrame() {
         if (!vmViewModel.inputMagnifierState.isVisible) return
         val textureView = gameTextureView ?: return
@@ -476,7 +494,18 @@ class VMActivity : BaseAppCompatActivity(), SurfaceTextureListener {
 
         // F1-1: 放大镜显示期间最多每 66 ms 捕获一帧，跳过过于频繁的 getBitmap
         val now = SystemClock.elapsedRealtime()
-        if (now - lastMagnifierCaptureTime < MAGNIFIER_CAPTURE_INTERVAL_MS) return
+        val sinceLast = now - lastMagnifierCaptureTime
+        if (sinceLast < MAGNIFIER_CAPTURE_INTERVAL_MS) {
+            if (!magnifierDeferredCapturePending) {
+                magnifierDeferredCapturePending = true
+                magnifierHandler.postDelayed(
+                    deferredMagnifierCapture,
+                    (MAGNIFIER_CAPTURE_INTERVAL_MS - sinceLast).coerceAtLeast(1L)
+                )
+            }
+            return
+        }
+        cancelDeferredMagnifierCapture()
         lastMagnifierCaptureTime = now
 
         val bitmap = magnifierBitmap
@@ -910,6 +939,7 @@ class VMActivity : BaseAppCompatActivity(), SurfaceTextureListener {
     }
 
     override fun onDestroy() {
+        cancelDeferredMagnifierCapture()
         cancelPendingSurfaceLaunch()
         availableSurfaceTexture = null
         surfaceGeneration++
