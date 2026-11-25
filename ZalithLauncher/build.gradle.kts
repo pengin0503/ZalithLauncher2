@@ -458,10 +458,8 @@ dependencies {
     implementation(project(":LayerController"))
     implementation(project(":ColorPicker"))
     implementation(project(":CardGrid"))
-    implementation(project(":Terracotta"))
     implementation(project(":InputMap"))
     implementation(project(":Guide"))
-    implementation(project(":PetLib"))
     //Utils
     implementation(libs.bytehook)
     implementation(libs.gson)

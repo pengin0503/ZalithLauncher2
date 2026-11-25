@@ -246,7 +246,6 @@
     <string name="url_wiki_minecraft_game_snapshot">https://minecraft.wiki/w/Java_Edition_%s</string>
     <string name="url_wiki_minecraft_game_release">https://minecraft.wiki/w/Java_Edition_%s</string>
     <string name="about_acknowledgements_pojav_text">%s はPojavLauncherの起動バックエンドを使用しています</string>
-    <string name="about_acknowledgements_modrinth_text">%s はModrinthのプレイヤーモデルアニメーションプリセットを移植しています</string>
     <string name="about_acknowledgements_pcl_text">%s はPCL2のコードの一部を参照しています</string>
     <string name="settings_launcher_full_screen_title">全画面モード</string>
     <string name="settings_control_gesture_trigger_mouse_left">左クリック</string>
@@ -971,7 +970,6 @@
     <string name="generic_follow_system">システムに従う</string>
     <string name="game_menu_option_menu_ball_opacity">メニューオーバーレイの不透明度</string>
     <string name="settings_launcher_dark_mode_title">ダークモード</string>
-    <string name="notification_data_terracotta_message">マルチプレイセッション中、ランチャーはフォアグラウンドサービスを利用して現在の通信状態を表示するため、通知の許可が必要です。</string>
     <string name="settings_control_mouse_enable_click_title">タッチパッド操作</string>
     <string name="settings_control_mouse_enable_click_summary">画面をタップするとマウスの左クリック、長押しすると左クリックのホールドとして扱われます; この設定は物理マウスコントロールやタップコントロールには影響しません</string>
     <string name="settings_launcher_background_video_volume_title">背景動画の音量</string>

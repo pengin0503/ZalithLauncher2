@@ -726,7 +726,6 @@
     <string name="about_sponsor">Dukung Dengan Sponsor</string>
     <string name="about_acknowledgements_title">Ucapan Terima Kasih Kepada</string>
     <string name="about_acknowledgements_pojav_text">%s menggunakan backend peluncur dari PojavLauncher</string>
-    <string name="about_acknowledgements_modrinth_text">%s memport preset animasi model pemain dari Modrinth</string>
     <string name="about_acknowledgements_pcl_text">%s merujuk bagian implementasi dari PCL2</string>
     <string name="about_acknowledgements_fcl_text">%s menggabungkan kode dari FCL dan merujuk bagian implementasinya</string>
     <string name="about_acknowledgements_hmcl_text">%s menggabungkan kode dari HMCL dan merujuk bagian implementasinya</string>
@@ -968,7 +967,6 @@
     <string name="generic_disabled">Matikan</string>
     <string name="generic_no_matching_items">Tidak ada item yang cocok</string>
     <string name="generic_follow_system">Ikuti sistem</string>
-    <string name="notification_data_terracotta_message">Saat mode multiplayer, launcher akan memakai layanan foreground untuk menampilkan status koneksi saat ini, jadi membutuh izin notifikasi.</string>
     <string name="settings_control_mouse_enable_click_title">Mode Touchpad</string>
     <string name="settings_control_mouse_enable_click_summary">Mengetuk layar dianggap sebagai klik kiri, tekan lama dianggap sebagai tahan klik kiri; pengaturan ini tidak memengaruhi kontrol dengan mouse fisik atau kontrol ketuk</string>
     <string name="settings_launcher_dark_mode_title">Mode Gelap</string>

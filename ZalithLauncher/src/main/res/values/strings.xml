@@ -272,7 +272,6 @@
     <!-- Notification title shown while a game is being installed -->
     <string name="notification_data_jvm_service_running">Installing game via foreground service</string>
     <!-- Dialog on the multiplayer screen explaining why notification permission is needed -->
-    <string name="notification_data_terracotta_message">During multiplayer sessions, the launcher uses a foreground service to display the current connection status, so notification permission is required.</string>
     <!-- Notification title and channel name of the service keeping the game running -->
     <string name="notification_jvm_running_name">JVM Keep-Alive Service</string>
     <!-- Notification channel name of the task keep-alive service -->
@@ -2618,7 +2617,6 @@
     <!-- Description of the PojavLauncher item in the acknowledgements; %s is the launcher name -->
     <string name="about_acknowledgements_pojav_text">%s uses the launch backend from PojavLauncher</string>
     <!-- Description of the Modrinth item in the acknowledgements; %s is the launcher name -->
-    <string name="about_acknowledgements_modrinth_text">%s ports the player model animation presets from Modrinth</string>
     <!-- Description of the Plain Craft Launcher 2 item in the acknowledgements; %s is the launcher name -->
     <string name="about_acknowledgements_pcl_text">%s references parts of the implementation from PCL2</string>
     <!-- Description of the Fold Craft Launcher item in the acknowledgements; %s is the launcher name -->

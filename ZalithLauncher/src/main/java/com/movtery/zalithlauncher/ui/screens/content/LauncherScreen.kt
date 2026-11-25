@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Zalith Launcher 2
  * Copyright (C) 2025-2026 MovTery <movtery228@qq.com> and contributors
  *
@@ -78,12 +78,9 @@ import com.movtery.cardgrid.state.rememberCardGridState
 import com.movtery.guide.GuideSide
 import com.movtery.guide.LocalGuideStep
 import com.movtery.guide.guideNode
-import com.movtery.petlib.PetAnimation
-import com.movtery.petlib.PetTapReaction
 import com.movtery.zalithlauncher.R
 import com.movtery.zalithlauncher.game.account.AccountsManager
 import com.movtery.zalithlauncher.game.account.getAccountTypeName
-import com.movtery.zalithlauncher.game.account.wardrobe.toArmModel
 import com.movtery.zalithlauncher.game.version.installed.Version
 import com.movtery.zalithlauncher.game.version.installed.VersionsManager
 import com.movtery.zalithlauncher.setting.LauncherSettings
@@ -93,7 +90,6 @@ import com.movtery.zalithlauncher.ui.components.AnimatedDirection
 import com.movtery.zalithlauncher.ui.components.BackgroundCard
 import com.movtery.zalithlauncher.ui.components.CutoutBox
 import com.movtery.zalithlauncher.ui.components.MarqueeText
-import com.movtery.zalithlauncher.ui.components.PetModelView
 import com.movtery.zalithlauncher.ui.components.ScalingIconButton
 import com.movtery.zalithlauncher.ui.components.animated
 import com.movtery.zalithlauncher.ui.components.rememberAnimatedContext
@@ -506,48 +502,6 @@ private fun VersionsContent(
 }
 
 @Composable
-private fun PetModelContent(
-    dockedSide: ActionMenuSide,
-    modifier: Modifier = Modifier,
-) {
-    val account by AccountsManager.currentAccountFlow.collectAsStateWithLifecycle()
-    val refreshWardrobe by AccountsManager.refreshWardrobe.collectAsStateWithLifecycle()
-
-    val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
-    // 偏航角符号与停泊侧相反，让模型面向屏幕内容一侧
-    val yaw = Math.toRadians(
-        ((if (dockedSide == ActionMenuSide.START) 35.0 else -(35.0)) * (if (isRtl) -1 else 1))
-    ).toFloat()
-
-    val armModel = account?.skinModelType?.toArmModel()
-    val skinStamp = account?.getSkinFile()?.lastModified()
-    val capeStamp = account?.getCapeFile()?.lastModified()
-    val skinBytes by produceState<ByteArray?>(null, account, refreshWardrobe, skinStamp) {
-        value = withContext(Dispatchers.IO) {
-            account?.getSkinFile()?.takeIf { it.exists() }
-                ?.inputStream()?.use { it.readBytes() }
-        }
-    }
-    val capeBytes by produceState<ByteArray?>(null, account, refreshWardrobe, capeStamp) {
-        value = withContext(Dispatchers.IO) {
-            account?.getCapeFile()?.takeIf { it.exists() }
-                ?.inputStream()?.use { it.readBytes() }
-        }
-    }
-
-    PetModelView(
-        modifier = modifier,
-        skin = skinBytes,
-        cape = capeBytes,
-        arm = armModel,
-        yaw = yaw,
-        animation = PetAnimation.Idle,
-        tapReaction = PetTapReaction.Interact,
-        dragYaw = false
-    )
-}
-
-@Composable
 private fun ActionMenuContent(
     modifier: Modifier = Modifier,
     dockedSide: ActionMenuSide,
@@ -565,20 +519,7 @@ private fun ActionMenuContent(
             )
             .then(modifier)
     ) {
-        val (versionLayout, petModel) = createRefs()
-
-        PetModelContent(
-            modifier = Modifier
-                .fillMaxWidth()
-                .constrainAs(petModel) {
-                    start.linkTo(parent.start)
-                    end.linkTo(parent.end)
-                    top.linkTo(parent.top)
-                    bottom.linkTo(anchor = versionLayout.top)
-                    height = Dimension.fillToConstraints
-                },
-            dockedSide = dockedSide,
-        )
+        val (versionLayout) = createRefs()
 
         Column(
             modifier = Modifier

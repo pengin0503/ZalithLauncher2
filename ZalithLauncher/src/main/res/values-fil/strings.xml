@@ -121,7 +121,6 @@
     <string name="notification_data_jvm_service_message">Upang matiyak ang maayos na pag-install, kailangang patakbuhin ng launcher ang installer sa foreground. Susubukan naming magsimula ng serbisyo sa foreground upang mapanatili ang katatagan, ngunit nangangailangan ito ng mga pahintulot sa abiso. Matutulungan mo ba kaming paganahin ang mga pahintulot sa abiso? Makakatulong ito na maiwasan ang mga pagkaantala sa pag-install!</string>
     <string name="notification_data_jvm_service_name">Serbisyo sa Pag-install sa Foreground</string>
     <string name="notification_data_jvm_service_running">Ini-install ang laro sa pamamagitan ng serbisyo sa foreground</string>
-    <string name="notification_data_terracotta_message">Sa mga multiplayer session, gumagamit ang launcher ng serbisyo sa foreground para ipakita ang kasalukuyang status ng koneksyon, kaya kailangan ng pahintulot sa abiso.</string>
     <string name="microphone_check_title">Tingnan ang Input ng Mikropono</string>
     <string name="microphone_check_no_permissions">Hindi Ibinigay ang Pahintulot sa Mikropono sa Launcher</string>
     <string name="unpack_screen_jre8">Java 8 Environment (kinakailangan para sa Minecraft 1.16 at mas mababa)</string>
@@ -316,5 +315,4 @@
     <string name="guide_joystick_events_lock_text4">I-tap ang button para i-edit ang mga trigger event nito</string>
     <string name="guide_joystick_events_events_text1">Ang mga event na maaaring i-trigger ay pareho lang ng sa mga ordinaryong button, napakalaya nito</string>
     <string name="guide_joystick_events_events_text2">Kung gusto mo lang kontrolin ang laro, i-edit lang ang mga aktwal na key binding sa section na “Key”</string>
-    <string name="about_acknowledgements_modrinth_text">%s nag-port ng mga preset ng animation ng player model mula sa Modrinth</string>
 </resources>

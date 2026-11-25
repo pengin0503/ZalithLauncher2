@@ -88,7 +88,6 @@ import com.movtery.zalithlauncher.setting.GameUiSettings
 import com.movtery.zalithlauncher.setting.MiscSettings
 import com.movtery.zalithlauncher.setting.enums.isLauncherInDarkTheme
 import com.movtery.zalithlauncher.setting.enums.toAction
-import com.movtery.zalithlauncher.terracotta.Terracotta
 import com.movtery.zalithlauncher.ui.components.BackgroundCard
 import com.movtery.zalithlauncher.ui.components.LittleTextLabel
 import com.movtery.zalithlauncher.ui.components.MenuState
@@ -115,8 +114,6 @@ import com.movtery.zalithlauncher.ui.screens.game.elements.ReplacementControlOpe
 import com.movtery.zalithlauncher.ui.screens.game.elements.ReplacementControlState
 import com.movtery.zalithlauncher.ui.screens.game.elements.SendKeycodeOperation
 import com.movtery.zalithlauncher.ui.screens.game.elements.SendKeycodeState
-import com.movtery.zalithlauncher.ui.screens.game.multiplayer.TerracottaOperation
-import com.movtery.zalithlauncher.ui.screens.game.multiplayer.rememberTerracottaViewModel
 import com.movtery.zalithlauncher.ui.screens.main.control_editor.ControlEditor
 import com.movtery.zalithlauncher.utils.GameDisplayLayoutState
 import com.movtery.zalithlauncher.utils.logging.Logger
@@ -593,12 +590,6 @@ fun GameScreen(
     val isGrabbing = remember(cursorMode) {
         cursorMode == CURSOR_DISABLED
     }
-    val terracottaViewModel = rememberTerracottaViewModel(
-        keyTag = gameHandler.toString() + "_Terracotta",
-        gameHandler = gameHandler,
-        eventViewModel = eventViewModel,
-        getUserName = getAccountName
-    )
 
     LaunchedEffect(viewModel.isEditingLayout, viewModel.gameMenuState) {
         //向VMActivity同步状态，编辑控制布局或打开游戏菜单时，不会继续处理按键事件
@@ -616,7 +607,6 @@ fun GameScreen(
         operation = viewModel.forceCloseState,
         onChange = { viewModel.forceCloseState = it },
         onForceClose = {
-            Terracotta.setWaiting(false)
             ZLNativeInvoker.jvmExit(0, false)
         },
         text = stringResource(R.string.game_menu_option_force_close_text)
@@ -627,13 +617,6 @@ fun GameScreen(
         onChange = { viewModel.replacementControlState = it },
         currentLayout = viewModel.currentControlFile,
         replacementControl = { viewModel.replaceControlLayout(it) }
-    )
-
-    TerracottaOperation(
-        viewModel = terracottaViewModel,
-        onShowToast = { text, duration ->
-            eventViewModel.sendToast(text, duration)
-        }
     )
 
     BoxWithConstraints(
@@ -773,8 +756,6 @@ fun GameScreen(
             closeScreen = { viewModel.gameMenuState = MenuState.HIDE },
             onForceClose = { viewModel.forceCloseState = ForceCloseOperation.Show },
             onSwitchLog = { onLogStateChange(logState.next()) },
-            enableTerracotta = MiscSettings.enableTerracotta.state,
-            onOpenTerracottaMenu = { terracottaViewModel.openMenu() },
             onRefreshWindowSize = { eventViewModel.sendEvent(EventViewModel.Event.Game.RefreshSize) },
             onInputMethod = {
                 eventViewModel.sendEvent(EventViewModel.Event.Game.SwitchIme(null))

@@ -81,7 +81,6 @@ val libraryData = listOf(
     LibraryInfo("SDL3", "Copyright (C) 1997-2026 Sam Lantinga <slouken@libsdl.org>", License("Zlib License", R.raw.sdl3_license), "https://github.com/libsdl-org/SDL"),
     LibraryInfo("sora-editor", "Copyright (C) 2020-2026  Rosemoe", License("LGPL-2.1 License", R.raw.sora_editor_license), "https://github.com/Rosemoe/sora-editor"),
     LibraryInfo("SimpleFPEWrapper", "Copyright © 2026 MobileGL-Dev", License(LICENSE_LGPL_3, R.raw.lgpl_3_license), "https://github.com/MobileGL-Dev/SimpleFPEWrapper"),
-    LibraryInfo("Terracotta", "Copyright © 2025 Burning_TNT", License(LICENSE_AGPL_3, net.burningtnt.terracotta.R.raw.terracotta_license), "https://github.com/burningtnt/Terracotta"),
     LibraryInfo("tm4e (TextMate for Eclipse)", "Copyright © Eclipse Foundation", License("EPL-2.0 License", R.raw.tm4e_license), "https://github.com/eclipse-tm4e/tm4e"),
     LibraryInfo("XZ for Java", "Copyright © The XZ for Java authors and contributors", License("0BSD License", R.raw.xz_java_license), "https://tukaani.org/xz/java.html")
 )

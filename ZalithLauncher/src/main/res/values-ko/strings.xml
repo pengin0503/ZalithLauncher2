@@ -129,7 +129,6 @@
     <string name="notification_data_jvm_service_message">원활한 설치를 위해 런처를 백그라운드에서 실행해야 합니다. 설치 안정성을 유지하기 위해 백그라운드 서비스를 시작하려 하며, 이 과정에서 알림 권한이 필요합니다. 설치가 중단되지 않도록 알림 권한을 허용해 주시겠어요? 이것은 안정적인 설치를 위해 꼭 필요한 과정입니다!</string>
     <string name="notification_data_jvm_service_name">백그라운드 설치 서비스</string>
     <string name="notification_data_jvm_service_running">백그라운드 서비스를 통해 게임을 설치 중입니다</string>
-    <string name="notification_data_terracotta_message">멀티플레이 세션 동안 런처는 현재 연결 상태를 표시하기 위해 백그라운드 서비스를 사용하며, 이를 위해 알림 권한이 필요합니다.</string>
     <string name="microphone_check_title">마이크 입력 확인</string>
     <string name="microphone_check_volume">음량: %d</string>
     <string name="microphone_check_no_permissions">마이크 권한이 허용되지 않았습니다</string>
@@ -984,7 +983,6 @@
     <string name="control_manage_failed_to_save">컨트롤 레이아웃 저장 실패</string>
     <string name="control_editor_edit_style_config_delete">정말 컨트롤 외관 \'%s\'을(를) 삭제하시겠습니까?</string>
     <string name="about_acknowledgements_pojav_text">%s은(는) PojavLauncher의 실행 백엔드를 사용합니다</string>
-    <string name="about_acknowledgements_modrinth_text">%s은(는) Modrinth의 플레이어 모델 애니메이션 프리셋을 이식합니다</string>
     <string name="vibrate_kind_one_shot">상수</string>
 
     <string name="guide_main_welcome_title">%s에 오신 것을 환영합니다!</string>

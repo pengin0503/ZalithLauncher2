@@ -818,7 +818,6 @@
     <string name="about_sponsor">Спонсорская поддержка</string>
     <string name="about_acknowledgements_title">Благодарности</string>
     <string name="about_acknowledgements_pojav_text">%s использует бэкенд запуска из PojavLauncher</string>
-    <string name="about_acknowledgements_modrinth_text">%s портирует предустановки анимации модели игрока из Modrinth</string>
     <string name="about_acknowledgements_pcl_text">%s использует отдельные реализации из PCL2</string>
     <string name="about_acknowledgements_fcl_text">%s включает код из FCL и использует отдельные его реализации</string>
     <string name="about_acknowledgements_hmcl_text">%s включает код из HMCL и использует отдельные его реализации</string>
@@ -990,7 +989,6 @@
     <string name="generic_follow_system">Как в системе</string>
     <string name="game_menu_option_menu_ball_opacity">Прозрачность меню-наложения</string>
     <string name="settings_launcher_dark_mode_title">Тёмный режим</string>
-    <string name="notification_data_terracotta_message">Во время мультиплеера лаунчер использует службу переднего плана для отображения текущего статуса соединения, поэтому требуется разрешение на отправку уведомлений.</string>
     <string name="settings_control_mouse_enable_click_title">Режим тачпада</string>
     <string name="settings_control_mouse_enable_click_summary">Включает управление как на тачпаде: касание — ЛКМ, долгое нажатие — удержание. Но не влияет на обычную мышь или сенсор:)</string>
     <string name="settings_launcher_background_video_volume_title">Громкость видео на заднем фоне</string>

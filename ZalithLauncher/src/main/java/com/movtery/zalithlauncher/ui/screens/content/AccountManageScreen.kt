@@ -64,7 +64,6 @@ import com.movtery.zalithlauncher.game.account.auth_server.data.AuthServer
 import com.movtery.zalithlauncher.game.account.isAuthServerAccount
 import com.movtery.zalithlauncher.game.account.isMicrosoftAccount
 import com.movtery.zalithlauncher.game.account.isMicrosoftLogging
-import com.movtery.zalithlauncher.game.account.wardrobe.toArmModel
 import com.movtery.zalithlauncher.game.account.yggdrasil.PlayerProfile
 import com.movtery.zalithlauncher.ui.AndroidStringText
 import com.movtery.zalithlauncher.ui.androidText
@@ -72,7 +71,6 @@ import com.movtery.zalithlauncher.ui.base.BaseScreen
 import com.movtery.zalithlauncher.ui.components.AnimatedDirection
 import com.movtery.zalithlauncher.ui.components.BackgroundCard
 import com.movtery.zalithlauncher.ui.components.MarqueeText
-import com.movtery.zalithlauncher.ui.components.PetModelView
 import com.movtery.zalithlauncher.ui.components.ScalingActionButton
 import com.movtery.zalithlauncher.ui.components.ScalingLabel
 import com.movtery.zalithlauncher.ui.components.SimpleAlertDialog
@@ -284,34 +282,7 @@ private fun ActionsLayout(
             .animated(ctx, from = AnimatedDirection.Left)
             .fillMaxHeight()
     ) {
-        //玩家模型预览
-        val refreshWardrobe by AccountsManager.refreshWardrobe.collectAsStateWithLifecycle()
-        val armModel = currentAccount?.skinModelType?.toArmModel()
-        val skinStamp = currentAccount?.getSkinFile()?.lastModified()
-        val capeStamp = currentAccount?.getCapeFile()?.lastModified()
-        val skinBytes by produceState<ByteArray?>(
-            null, currentAccount, refreshWardrobe, skinStamp, armModel
-        ) {
-            value = withContext(Dispatchers.IO) {
-                currentAccount?.getSkinFile()?.takeIf { it.exists() }
-                    ?.inputStream()?.use { it.readBytes() }
-            }
-        }
-        val capeBytes by produceState<ByteArray?>(null, currentAccount, refreshWardrobe, capeStamp) {
-            value = withContext(Dispatchers.IO) {
-                currentAccount?.getCapeFile()?.takeIf { it.exists() }
-                    ?.inputStream()?.use { it.readBytes() }
-            }
-        }
-        PetModelView(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
-            skin = skinBytes,
-            cape = capeBytes,
-            arm = armModel,
-            yaw = Math.toRadians(35.0).toFloat()
-        )
+        Spacer(modifier = Modifier.weight(1f))
 
         //添加账号
         ScalingActionButton(
