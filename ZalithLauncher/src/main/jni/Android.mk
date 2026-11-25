@@ -12,11 +12,46 @@ $(call import-module,prefab/bytehook)
 LOCAL_PATH := $(HERE_PATH)
 
 
+# Stage 5-3: arm64-v8a release optimization for the Lite fork.
+# The Lite APK ships arm64-v8a only (-Darch=arm64) and the target device
+# (Reno13 A) uses Cortex-A78-class big cores + Cortex-A55 little cores, so the
+# flags are gated on TARGET_ARCH_ABI; the stock multi-ABI build keeps its
+# generic codegen.
+#
+# -mcpu=cortex-a78 makes clang emit ARMv8.2-A code (Cortex-A78 implements
+# ARMv8.2-A). The little Cortex-A55 cores also implement ARMv8.2-A, so the
+# same objects run on both clusters. This is the approved Reno13 A
+# exclusivity trade-off: the resulting arm64 objects may not run on older
+# arm64 devices.
+#
+# -flto is deliberately left out (LTO + ByteHook prefab is a known risk) and
+# -ffast-math is deliberately not used (JNI/audio code needs IEEE semantics).
+ifeq ($(TARGET_ARCH_ABI),arm64-v8a)
+LITE_OPT_CFLAGS := -O3 -ffunction-sections -fdata-sections -mcpu=cortex-a78
+LITE_OPT_LDFLAGS := -Wl,--gc-sections
+# Opt in only for modules whose externally-resolved symbols are JNIEXPORT or
+# already annotated visibility("default"); see the per-module notes below.
+LITE_OPT_HIDDEN := -fvisibility=hidden
+else
+LITE_OPT_CFLAGS :=
+LITE_OPT_LDFLAGS :=
+LITE_OPT_HIDDEN :=
+endif
+
+
 include $(CLEAR_VARS)
 LOCAL_LDLIBS := -ldl -llog -landroid
 LOCAL_MODULE := pojavexec
 LOCAL_SHARED_LIBRARIES := driver_helper
 LOCAL_CFLAGS += -rdynamic
+# -fvisibility=hidden is intentionally NOT applied here: input_bridge_v3.c's
+# JNI_OnLoad() has no JNIEXPORT (ART resolves it by name from .dynsym), and
+# exithook links against pojavexec's plain pojav_environ / nominal_exit
+# symbols. The dlsym(RTLD_DEFAULT, ...) in java_exec_hooks.c resolves
+# libjava.so's symbol, not one of ours, so it is not the reason.
+LOCAL_CFLAGS += $(LITE_OPT_CFLAGS)
+LOCAL_CPPFLAGS += $(LITE_OPT_CFLAGS)
+LOCAL_LDFLAGS += $(LITE_OPT_LDFLAGS)
 LOCAL_C_INCLUDES := $(LOCAL_PATH)
 LOCAL_SRC_FILES := \
     bigcoreaffinity.c \
@@ -51,6 +86,10 @@ LOCAL_LDLIBS := -ldl -llog
 LOCAL_MODULE := vulkan_check
 LOCAL_SHARED_LIBRARIES := driver_helper
 LOCAL_SRC_FILES := vulkan_checker.c
+# JNI-only module: every symbol resolved from outside is JNIEXPORT.
+LOCAL_CFLAGS += $(LITE_OPT_CFLAGS) $(LITE_OPT_HIDDEN)
+LOCAL_CPPFLAGS += $(LITE_OPT_CFLAGS) $(LITE_OPT_HIDDEN)
+LOCAL_LDFLAGS += $(LITE_OPT_LDFLAGS)
 include $(BUILD_SHARED_LIBRARY)
 
 ifeq ($(TARGET_ARCH_ABI),arm64-v8a)
@@ -65,6 +104,10 @@ LOCAL_SHARED_LIBRARIES := bytehook pojavexec
 LOCAL_SRC_FILES := exit_hook.c \
     sdl_hook.c \
     sdl_dlopen_hook.c
+# JNI-only module: every externally-resolved symbol is JNIEXPORT.
+LOCAL_CFLAGS += $(LITE_OPT_CFLAGS) $(LITE_OPT_HIDDEN)
+LOCAL_CPPFLAGS += $(LITE_OPT_CFLAGS) $(LITE_OPT_HIDDEN)
+LOCAL_LDFLAGS += $(LITE_OPT_LDFLAGS)
 include $(BUILD_SHARED_LIBRARY)
 
 
@@ -74,7 +117,13 @@ LOCAL_MODULE := driver_helper
 LOCAL_SRC_FILES := \
     driver_helper/driver_helper.c \
     driver_helper/nsbypass.c
-LOCAL_CFLAGS += -g -rdynamic
+# -g dropped; -rdynamic kept as before.
+# -fvisibility=hidden is intentionally NOT applied here: loadTurnipVulkan() is
+# a plain (non-JNIEXPORT) C symbol linked by pojavexec and vulkan_check from
+# this shared library, so hiding it would break their link.
+LOCAL_CFLAGS += -rdynamic $(LITE_OPT_CFLAGS)
+LOCAL_CPPFLAGS += $(LITE_OPT_CFLAGS)
+LOCAL_LDFLAGS += $(LITE_OPT_LDFLAGS)
 
 ifeq ($(TARGET_ARCH_ABI),arm64-v8a)
 LOCAL_CFLAGS += -DADRENO_POSSIBLE
@@ -89,6 +138,12 @@ LOCAL_SRC_FILES := \
     linkerhook/linkerhook.cpp \
     linkerhook/linkerns.c
 LOCAL_LDFLAGS := -z global
+# linkerhook's cross-library exports are already annotated
+# visibility("default") in linkerns.c, so -fvisibility=hidden only hides its
+# internal C++ helpers.
+LOCAL_CFLAGS += $(LITE_OPT_CFLAGS) $(LITE_OPT_HIDDEN)
+LOCAL_CPPFLAGS += $(LITE_OPT_CFLAGS) $(LITE_OPT_HIDDEN)
+LOCAL_LDFLAGS += $(LITE_OPT_LDFLAGS)
 include $(BUILD_SHARED_LIBRARY)
 
 
@@ -96,6 +151,11 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := pojavexec_awt
 LOCAL_SRC_FILES := \
     awt_bridge.c
+# -fvisibility=hidden is intentionally NOT applied here: awt_bridge.c's
+# JNI_OnLoad() has no JNIEXPORT and initializes the AWT bridge globals.
+LOCAL_CFLAGS += $(LITE_OPT_CFLAGS)
+LOCAL_CPPFLAGS += $(LITE_OPT_CFLAGS)
+LOCAL_LDFLAGS += $(LITE_OPT_LDFLAGS)
 include $(BUILD_SHARED_LIBRARY)
 
 
@@ -110,6 +170,10 @@ LOCAL_MODULE := awt_xawt
 LOCAL_EXPORT_C_INCLUDES := $(LOCAL_PATH)
 LOCAL_SHARED_LIBRARIES := awt_headless
 LOCAL_SRC_FILES := xawt_fake.c
+# JNI-only stub: every entry point is JNIEXPORT.
+LOCAL_CFLAGS += $(LITE_OPT_CFLAGS) $(LITE_OPT_HIDDEN)
+LOCAL_CPPFLAGS += $(LITE_OPT_CFLAGS) $(LITE_OPT_HIDDEN)
+LOCAL_LDFLAGS += $(LITE_OPT_LDFLAGS)
 include $(BUILD_SHARED_LIBRARY)
 
 
@@ -134,6 +198,10 @@ LOCAL_CFLAGS += \
     -DUSE_PORTS=FALSE \
     -DUSE_PLATFORM_MIDI_OUT=FALSE \
     -DUSE_PLATFORM_MIDI_IN=FALSE
+# JNI-only module: every entry point the JRE resolves is JNIEXPORT.
+LOCAL_CFLAGS += $(LITE_OPT_CFLAGS) $(LITE_OPT_HIDDEN)
+LOCAL_CPPFLAGS += $(LITE_OPT_CFLAGS) $(LITE_OPT_HIDDEN)
+LOCAL_LDFLAGS += $(LITE_OPT_LDFLAGS)
 LOCAL_C_INCLUDES := $(HERE_PATH)/jsound
 LOCAL_LDLIBS := -llog -ldl
 LOCAL_SRC_FILES := \
@@ -159,17 +227,27 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := flite
 LOCAL_SRC_FILES := flite_bridge.c
 LOCAL_LDLIBS := -llog
+# JNI-only module (fcl_flite_init/fcl_flite_say are JNIEXPORT).
+LOCAL_CFLAGS += $(LITE_OPT_CFLAGS) $(LITE_OPT_HIDDEN)
+LOCAL_CPPFLAGS += $(LITE_OPT_CFLAGS) $(LITE_OPT_HIDDEN)
+LOCAL_LDFLAGS += $(LITE_OPT_LDFLAGS)
 include $(BUILD_SHARED_LIBRARY)
 
 include $(CLEAR_VARS)
 LOCAL_MODULE := fliteWrapper
 LOCAL_SRC_FILES := flite_wrapper.c
 LOCAL_SHARED_LIBRARIES := flite
+LOCAL_CFLAGS += $(LITE_OPT_CFLAGS) $(LITE_OPT_HIDDEN)
+LOCAL_CPPFLAGS += $(LITE_OPT_CFLAGS) $(LITE_OPT_HIDDEN)
+LOCAL_LDFLAGS += $(LITE_OPT_LDFLAGS)
 include $(BUILD_SHARED_LIBRARY)
 
 include $(CLEAR_VARS)
 LOCAL_MODULE := flite_cmu_us_kal16
 LOCAL_SRC_FILES := flite_cmu_us_kal16.c
+LOCAL_CFLAGS += $(LITE_OPT_CFLAGS) $(LITE_OPT_HIDDEN)
+LOCAL_CPPFLAGS += $(LITE_OPT_CFLAGS) $(LITE_OPT_HIDDEN)
+LOCAL_LDFLAGS += $(LITE_OPT_LDFLAGS)
 include $(BUILD_SHARED_LIBRARY)
 
 LOCAL_PATH := $(HERE_PATH)
