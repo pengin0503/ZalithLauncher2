@@ -32,6 +32,7 @@ import com.movtery.zalithlauncher.bridge.NativeLibraryLoader
 import com.movtery.zalithlauncher.game.launch.JvmLaunchInfo
 import com.movtery.zalithlauncher.game.launch.JvmLauncher
 import com.movtery.zalithlauncher.game.launch.Launcher
+import com.movtery.zalithlauncher.game.multirt.CdsDumpLauncher
 import com.movtery.zalithlauncher.notification.NOTIFICATION_ID_JVM_SERVICE
 import com.movtery.zalithlauncher.notification.NoticeProgress
 import com.movtery.zalithlauncher.notification.NotificationChannelData
@@ -40,6 +41,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.io.IOException
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -65,6 +67,9 @@ class JvmService : Service() {
         val jreName = intent.extras?.getString(SERVICE_JRE_NAME)
         val userHome = intent.extras?.getString(SERVICE_USER_HOME)
         val postSummary = intent.extras?.getString(SERVICE_POST_SUMMARY)
+        val cdsDump = intent.extras?.getBoolean(SERVICE_CDS_DUMP, false) == true
+        val cdsArchivePath = intent.extras?.getString(SERVICE_CDS_ARCHIVE)
+        val cdsClassListPath = intent.extras?.getString(SERVICE_CDS_CLASSLIST)
         val postProgress = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             intent.extras?.getParcelable(SERVICE_POST_PROGRESS, NoticeProgress::class.java)
         } else {
@@ -82,6 +87,9 @@ class JvmService : Service() {
                 jvmArgs = jvmArgs,
                 jreName = jreName,
                 userHome = userHome,
+                cdsDump = cdsDump,
+                cdsArchivePath = cdsArchivePath,
+                cdsClassListPath = cdsClassListPath,
                 onExit = { code, _ ->
                     Logger.info(TAG, "Process exit with code $code")
                     //移除前台通知再停止服务，让系统知道这是正常关闭
@@ -155,21 +163,37 @@ class JvmService : Service() {
         jvmArgs: String,
         jreName: String? = null,
         userHome: String? = null,
+        cdsDump: Boolean = false,
+        cdsArchivePath: String? = null,
+        cdsClassListPath: String? = null,
         onExit: (code: Int, isSignal: Boolean) -> Unit
     ) {
-        val jvmLaunchInfo = JvmLaunchInfo(
-            jvmArgs = jvmArgs,
-            jreName = jreName,
-            userHome = userHome,
-            useUserJvm = false,
-        )
-
-        val launcher = JvmLauncher(
-            context = applicationContext,
-            jvmLaunchInfo = jvmLaunchInfo,
-            onExit = onExit,
-            openPath = { /* 忽略 */ }
-        )
+        val launcher: Launcher = if (cdsDump) {
+            // CDS 生成：直接以 -Xshare:dump 启动运行时 JVM，不加载游戏/安装器的
+            // classpath 与 cacio agent；VM 在初始化阶段完成归档后自行退出。
+            val name = jreName ?: error("CDS dump requires a runtime name")
+            val archive = cdsArchivePath ?: error("CDS dump requires an archive path")
+            val classList = cdsClassListPath ?: error("CDS dump requires a classlist path")
+            CdsDumpLauncher(
+                appContext = applicationContext,
+                runtimeName = name,
+                targetArchive = File(archive),
+                targetClassList = File(classList),
+                onExit = onExit
+            )
+        } else {
+            JvmLauncher(
+                context = applicationContext,
+                jvmLaunchInfo = JvmLaunchInfo(
+                    jvmArgs = jvmArgs,
+                    jreName = jreName,
+                    userHome = userHome,
+                    useUserJvm = false,
+                ),
+                onExit = onExit,
+                openPath = { /* 忽略 */ }
+            )
+        }
 
         runJvm(launcher, onExit)
     }

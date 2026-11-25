@@ -39,6 +39,9 @@ const val SERVICE_JRE_NAME = "service.jre.name"
 const val SERVICE_USER_HOME = "service.user.home"
 const val SERVICE_POST_SUMMARY = "service.post.summary"
 const val SERVICE_POST_PROGRESS = "service.post.progress"
+const val SERVICE_CDS_DUMP = "service.cds.dump"
+const val SERVICE_CDS_ARCHIVE = "service.cds.archive"
+const val SERVICE_CDS_CLASSLIST = "service.cds.classlist"
 
 fun startJvmService(
     context: Context,
@@ -47,6 +50,9 @@ fun startJvmService(
     userHome: String? = null,
     postSummary: String? = null,
     postProgress: NoticeProgress? = null,
+    cdsDump: Boolean = false,
+    cdsArchivePath: String? = null,
+    cdsClassListPath: String? = null,
 ) {
     val bundle = Bundle().apply {
         putString(SERVICE_JVM_ARGS, jvmArgs)
@@ -54,6 +60,9 @@ fun startJvmService(
         putString(SERVICE_USER_HOME, userHome)
         putString(SERVICE_POST_SUMMARY, postSummary)
         putParcelable(SERVICE_POST_PROGRESS, postProgress)
+        putBoolean(SERVICE_CDS_DUMP, cdsDump)
+        putString(SERVICE_CDS_ARCHIVE, cdsArchivePath)
+        putString(SERVICE_CDS_CLASSLIST, cdsClassListPath)
     }
     val intent = Intent(context, JvmService::class.java).apply {
         putExtras(bundle)

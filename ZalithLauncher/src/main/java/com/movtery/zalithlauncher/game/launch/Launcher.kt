@@ -33,6 +33,7 @@ import com.movtery.zalithlauncher.components.Components
 import com.movtery.zalithlauncher.components.InstallableItem
 import com.movtery.zalithlauncher.components.UnpackComponentsTask
 import com.movtery.zalithlauncher.context.GlobalContext
+import com.movtery.zalithlauncher.game.multirt.CdsArchive
 import com.movtery.zalithlauncher.game.multirt.Runtime
 import com.movtery.zalithlauncher.game.multirt.RuntimesManager
 import com.movtery.zalithlauncher.game.path.getGameHome
@@ -76,7 +77,6 @@ abstract class Launcher(
      * 当前启动版本的 LWJGL natives 目录
      */
     protected lateinit var lwjglNativesDir: String
-        private set
 
     /**
      * 初始化 LWJGL 组件
@@ -396,6 +396,24 @@ abstract class Launcher(
         // Disable hsperfdata (the mmap'd perf counter file): nothing on Android reads it,
         // so this avoids its startup writes and resident pages. No gameplay effect.
         args.add("-XX:-UsePerfData")
+
+        // CDS（Class Data Sharing）：仅游戏启动使用设备上生成的共享归档。
+        // 安装器 JVM（JvmLauncher）不加，避免多进程场景下额外的映射/内存开销。
+        // 用户显式指定了 Xshare / 归档参数时不覆盖。
+        val userSpecifiedCds = args.any {
+            it.startsWith("-Xshare") ||
+                it.startsWith("-XX:SharedArchiveFile") ||
+                it.startsWith("-XX:ArchiveClassesAtExit") ||
+                it.startsWith("-XX:+ArchiveClassesAtExit")
+        }
+        if (this is GameLauncher && !userSpecifiedCds) {
+            CdsArchive.findExisting(runtime, runtimeHome)?.let { archive ->
+                // 用 -Xshare:auto 而不是 -Xshare:on：归档过期/损坏时 HotSpot 会静默回退，
+                // 而 -Xshare:on 在部分版本会直接让游戏启动失败。
+                args.add("-Xshare:auto")
+                args.add("-XX:SharedArchiveFile=${archive.absolutePath}")
+            }
+        }
     }
 
     protected fun MutableList<String>.purgeArg(argStart: String) {
