@@ -49,12 +49,13 @@ object GameSettings : SettingsRegistry() {
     /**
      * 游戏内存分配大小
      */
-    val ramAllocation = intSetting("ramAllocation", null, min = 256)
+    private val defaultRamAllocation: Int? = 2560
+    val ramAllocation = intSetting("ramAllocation", defaultRamAllocation, min = 256)
 
     /**
      * 自定义Jvm启动参数
      */
-    val jvmArgs = stringSetting("jvmArgs", "")
+    val jvmArgs = stringSetting("jvmArgs", "-XX:+UseG1GC -XX:ParallelGCThreads=4")
 
     /**
      * 已禁用的原生库插件列表

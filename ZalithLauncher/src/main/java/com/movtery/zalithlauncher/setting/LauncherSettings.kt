@@ -68,12 +68,12 @@ object LauncherSettings : SettingsRegistry() {
     /**
      * 持续型节日彩蛋效果
      */
-    val launcherFestivalEffects = boolSetting("launcherFestivalEffects", true)
+    val launcherFestivalEffects = boolSetting("launcherFestivalEffects", false)
 
     /**
      * 启用页面切换动画
      */
-    val launcherSwapAnimEnabled = boolSetting("launcherSwapAnimEnabled", true)
+    val launcherSwapAnimEnabled = boolSetting("launcherSwapAnimEnabled", false)
 
     /**
      * 动画速度

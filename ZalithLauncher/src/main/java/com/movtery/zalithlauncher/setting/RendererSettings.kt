@@ -25,7 +25,7 @@ object RendererSettings : SettingsRegistry() {
     /**
      * 全局渲染器
      */
-    val renderer = stringSetting("renderer", "")
+    val renderer = stringSetting("renderer", "acaf8100-bbaf-4d68-b30d-38bf42fcd640")
 
     /**
      * 为渲染器插件叠加 SFPEW 兼容层
@@ -50,7 +50,7 @@ object RendererSettings : SettingsRegistry() {
     /**
      * 分辨率
      */
-    val resolutionRatio = intSetting("resolutionRatio", 100, 25..300)
+    val resolutionRatio = intSetting("resolutionRatio", 75, 25..300)
 
     /**
      * 分辨率规则
@@ -80,12 +80,12 @@ object RendererSettings : SettingsRegistry() {
     /**
      * 游戏运行时请求系统切换到同分辨率最高刷新率档位（关闭则回落系统自适应刷新）
      */
-    val requestMaxRefreshRate = boolSetting("requestMaxRefreshRate", true)
+    val requestMaxRefreshRate = boolSetting("requestMaxRefreshRate", false)
 
     /**
      * 使用系统的 Vulkan 驱动
      */
-    val zinkPreferSystemDriver = boolSetting("zinkPreferSystemDriver", false)
+    val zinkPreferSystemDriver = boolSetting("zinkPreferSystemDriver", true)
 
     /**
      * Zink 垂直同步
