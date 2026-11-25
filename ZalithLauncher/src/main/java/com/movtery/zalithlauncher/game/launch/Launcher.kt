@@ -583,20 +583,44 @@ abstract class Launcher(
             javaLibDir = "$runtimeHome/jre${getJavaLibDir()}"
         }
         val jvmLibDir = "$javaLibDir${getJvmLibDir()}"
-        ZLBridge.dlopen("$jliLibDir/libjli.so")
-        ZLBridge.dlopen("$jvmLibDir/libjvm.so")
-        ZLBridge.dlopen("$javaLibDir/libfreetype.so")
-        ZLBridge.dlopen("$javaLibDir/libverify.so")
-        ZLBridge.dlopen("$javaLibDir/libjava.so")
-        ZLBridge.dlopen("$javaLibDir/libnet.so")
-        ZLBridge.dlopen("$javaLibDir/libnio.so")
-        ZLBridge.dlopen("$javaLibDir/libawt.so")
-        ZLBridge.dlopen("$javaLibDir/libawt_headless.so")
-        ZLBridge.dlopen("$javaLibDir/libfontmanager.so")
-        locateLibs(File(runtimeHome)).forEach { file ->
+        val explicitLibs = listOf(
+            "$jliLibDir/libjli.so",
+            "$jvmLibDir/libjvm.so",
+            "$javaLibDir/libfreetype.so",
+            "$javaLibDir/libverify.so",
+            "$javaLibDir/libjava.so",
+            "$javaLibDir/libnet.so",
+            "$javaLibDir/libnio.so",
+            "$javaLibDir/libawt.so",
+            "$javaLibDir/libawt_headless.so",
+            "$javaLibDir/libfontmanager.so"
+        )
+        explicitLibs.forEach { ZLBridge.dlopen(it) }
+
+        // FF-F2-2：只遍历 Java home 的 lib/ 子树（JDK8 为 jre/lib/<arch>），不再递归整个 runtimeHome。
+        // 经核对打包的 jre-8/17/21/25，运行时里的 .so 全部位于 lib/ 下；bin/、legal/、conf/、
+        // lib/security 等目录不含 .so，因此全树递归实际只命中 lib/，额外收益来自跳过上面显式加载的重复项。
+        // 显式列表保持原样；这里按 canonical path 去重，避免同一库被 dlopen 多次（含符号链接）。
+        val libDir = File(getJavaHome(), "lib")
+        val loadedPaths = explicitLibs.mapTo(mutableSetOf<String>()) { it.canonicalLibPath() }
+        var extraLibs = 0
+        var skippedDuplicates = 0
+        locateLibs(libDir).forEach { file ->
+            if (!loadedPaths.add(file.absolutePath.canonicalLibPath())) {
+                skippedDuplicates++
+                return@forEach
+            }
             ZLBridge.dlopen(file.absolutePath)
+            extraLibs++
         }
+        LoggerBridge.appendInfo(
+            "JRE preload: walked ${libDir.absolutePath}: " +
+                "$extraLibs extra libs loaded, $skippedDuplicates explicit duplicates skipped"
+        )
     }
+
+    private fun String.canonicalLibPath(): String =
+        runCatching { File(this).canonicalPath }.getOrDefault(this)
 
     @CallSuper
     protected open fun dlopenEngine() {

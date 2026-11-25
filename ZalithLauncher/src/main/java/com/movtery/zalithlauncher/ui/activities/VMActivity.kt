@@ -646,8 +646,11 @@ class VMActivity : BaseAppCompatActivity(), SurfaceTextureListener {
                     // 以下顺序存在依赖，不能并行或提前发布 Session
                     // 加载渲染器
                     Renderers.init()
-                    // 加载插件
-                    PluginLoader.loadAllPlugins(this@VMActivity, false)
+                    // 加载插件：FF-F2-3 优先只加载主进程缓存中的选中渲染器插件包；
+                    // 缓存缺失/过期时回退到原有的全量扫描
+                    if (!PluginLoader.loadSelectedRendererPlugin(this@VMActivity)) {
+                        PluginLoader.loadAllPlugins(this@VMActivity, true)
+                    }
                     refreshData()
 
                     val session = vmViewModel.createSession(

@@ -282,7 +282,9 @@ class GameLauncher(
             readAssetsFile = { path -> activity.readAssetFile(path) },
             getCacioJavaArgs = { isJava8 ->
                 getCacioJavaArgs(screenSize, isJava8)
-            }
+            },
+            // FF-F2-1：游戏 JVM 不注入 Cacio；安装器 JVM（JvmLauncher）保持原样
+            includeCacio = false
         ).getAllArgs()
 
         tryStartTouchProxy()
