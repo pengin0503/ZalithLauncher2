@@ -132,7 +132,7 @@ class ZLApplication : Application(), SingletonImageLoader.Factory {
             .diskCachePolicy(CachePolicy.ENABLED)
             .diskCache {
                 DiskCache.Builder()
-                    .maxSizeBytes(512L * 1024 * 1024) // 512MB
+                    .maxSizeBytes(256L * 1024 * 1024) // 256MB
                     .directory(PathManager.DIR_IMAGE_CACHE.toOkioPath())
                     .build()
             }

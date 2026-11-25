@@ -202,7 +202,7 @@ private class GameViewModel(
                     break
                 }
                 recordFps(CallbackBridge.getCurrentFps())
-                delay(1000L.milliseconds)
+                delay(2000L.milliseconds)
             }
         }
     }

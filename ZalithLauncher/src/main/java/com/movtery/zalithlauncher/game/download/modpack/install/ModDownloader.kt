@@ -48,7 +48,7 @@ private const val TAG = "ModDownloader"
  */
 class ModDownloader(
     val mods: List<ModFile>,
-    private val maxDownloadThreads: Int = 64
+    private val maxDownloadThreads: Int = 16
 ) {
     suspend fun startDownload(task: Task) {
         task.updateMessage(null)

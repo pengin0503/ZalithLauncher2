@@ -25,18 +25,29 @@ import com.movtery.zalithlauncher.context.copyAssetFile
 import com.movtery.zalithlauncher.game.version.installed.Version
 import com.movtery.zalithlauncher.utils.logging.Logger
 import com.movtery.zalithlauncher.utils.string.splitPreservingQuotes
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
 private const val TAG = "MCOptions"
+private const val OBSERVER_DEBOUNCE_MS = 200L
 
 object MCOptions {
     private val lock = Any()
     private val parameterMap = ConcurrentHashMap<String, String>()
+    private val observerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var fileObserver: FileObserver? = null
+    private var debounceJob: Job? = null
+    private var lastLoadedSize: Long = -1L
+    private var lastLoadedMtime: Long = -1L
     private lateinit var version: Version
 
     private val _refreshKey = MutableStateFlow(false)
@@ -50,15 +61,23 @@ object MCOptions {
         this.version = version
         synchronized(lock) {
             parameterMap.clear()
+            debounceJob?.cancel()
+            debounceJob = null
+            lastLoadedSize = -1L
+            lastLoadedMtime = -1L
             fileObserver?.stopWatching()
 
             val optionsFile = getOptionsFile()
             optionsFile.parentFile?.takeIf { !it.exists() }?.mkdirs()
-            if (!optionsFile.exists()) {
+            val existed = optionsFile.exists()
+            if (!existed) {
                 optionsFile.createWithDefaults(context)
             }
 
             loadInternal()
+            if (existed) {
+                fillMissingDefaults(context)
+            }
             setupFileObserver()
         }
     }
@@ -75,8 +94,38 @@ object MCOptions {
         }
     }
 
+    private fun fillMissingDefaults(context: Context) {
+        runCatching {
+            var added = false
+            context.assets.open("game/options.txt").bufferedReader().useLines { lines ->
+                lines.forEach { line ->
+                    line.indexOf(':').takeIf { it > 0 }?.let { idx ->
+                        val key = line.take(idx)
+                        val value = line.substring(idx + 1)
+                        if (parameterMap.putIfAbsent(key, value) == null) {
+                            added = true
+                        }
+                    }
+                }
+            }
+            if (added) {
+                val optionsFile = getOptionsFile()
+                writeFileAtomically(optionsFile)
+                updateLoadedMeta(optionsFile)
+            }
+        }.onFailure {
+            Logger.warning(TAG, "Failed to merge default options.txt!", it)
+        }
+    }
+
     private fun loadInternal() {
         val optionsFile = getOptionsFile()
+        if (!optionsFile.exists()) return
+        val size = optionsFile.length()
+        val mtime = optionsFile.lastModified()
+        if (size == lastLoadedSize && mtime == lastLoadedMtime) {
+            return
+        }
         runCatching {
             val newMap = optionsFile.readLines()
                 .mapNotNull { line ->
@@ -87,10 +136,19 @@ object MCOptions {
 
             parameterMap.clear()
             parameterMap.putAll(newMap)
+            lastLoadedSize = size
+            lastLoadedMtime = mtime
 
             _refreshKey.update { it.not() }
         }.onFailure {
             Logger.warning(TAG, "Failed to load options!", it)
+        }
+    }
+
+    private fun updateLoadedMeta(file: File) {
+        if (file.exists()) {
+            lastLoadedSize = file.length()
+            lastLoadedMtime = file.lastModified()
         }
     }
 
@@ -117,10 +175,13 @@ object MCOptions {
 
     fun save() {
         synchronized(lock) {
+            debounceJob?.cancel()
+            debounceJob = null
             getOptionsFile().takeIf { it.exists() }?.let { file ->
                 try {
                     fileObserver?.stopWatching()
                     writeFileAtomically(file)
+                    updateLoadedMeta(file)
                 } finally {
                     fileObserver?.startWatching()
                 }
@@ -153,6 +214,18 @@ object MCOptions {
         }
     }
 
+    private fun scheduleReload() {
+        synchronized(lock) {
+            debounceJob?.cancel()
+            debounceJob = observerScope.launch {
+                delay(OBSERVER_DEBOUNCE_MS)
+                synchronized(lock) {
+                    loadInternal()
+                }
+            }
+        }
+    }
+
     @Suppress("DEPRECATION")
     private fun createPlatformFileObserver(): FileObserver {
         val observeTarget = getOptionsFile()
@@ -161,9 +234,7 @@ object MCOptions {
             object : FileObserver(observeTarget, MODIFY) {
                 override fun onEvent(event: Int, path: String?) {
                     if (event and MODIFY != 0) {
-                        synchronized(lock) {
-                            loadInternal()
-                        }
+                        scheduleReload()
                     }
                 }
             }
@@ -171,9 +242,7 @@ object MCOptions {
             object : FileObserver(observeTarget.absolutePath, MODIFY) {
                 override fun onEvent(event: Int, path: String?) {
                     if (event and MODIFY != 0) {
-                        synchronized(lock) {
-                            loadInternal()
-                        }
+                        scheduleReload()
                     }
                 }
             }
