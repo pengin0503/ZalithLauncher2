@@ -179,6 +179,10 @@ suspend fun startJvmServiceAndWaitExit(
     postSummary: String? = null,
     postProgress: NoticeProgress? = null,
     logOutput: TaskLogOutput? = null,
+    cdsDump: Boolean = false,
+    cdsArchivePath: String? = null,
+    cdsClassListPath: String? = null,
+    timeout: Duration = JVM_EXIT_TIMEOUT,
 ): Int = withContext(Dispatchers.IO) {
     val doneSignal = CompletableDeferred<Unit>()
 
@@ -206,7 +210,10 @@ suspend fun startJvmServiceAndWaitExit(
                     userHome = userHome,
                     jreName = jreName,
                     postSummary = postSummary,
-                    postProgress = postProgress
+                    postProgress = postProgress,
+                    cdsDump = cdsDump,
+                    cdsArchivePath = cdsArchivePath,
+                    cdsClassListPath = cdsClassListPath
                 )
                 break
             } catch (e: Exception) {
@@ -226,9 +233,9 @@ suspend fun startJvmServiceAndWaitExit(
             }
         }
 
-        if (withTimeoutOrNull(JVM_EXIT_TIMEOUT) { doneSignal.await() } == null) {
+        if (withTimeoutOrNull(timeout) { doneSignal.await() } == null) {
             // 超时，停掉服务与接收端，让安装以可见错误结束而不是永久挂起
-            Logger.error(TAG, "Timed out ($JVM_EXIT_TIMEOUT) waiting for JVM exit code, stopping service...")
+            Logger.error(TAG, "Timed out ($timeout) waiting for JVM exit code, stopping service...")
             runCatching {
                 GlobalContext.stopService(Intent(GlobalContext, JvmService::class.java))
             }

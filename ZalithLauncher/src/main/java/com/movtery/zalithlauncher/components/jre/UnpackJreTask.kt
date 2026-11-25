@@ -23,6 +23,7 @@ import android.content.res.AssetManager
 import com.movtery.zalithlauncher.ZLApplication
 import com.movtery.zalithlauncher.components.AbstractUnpackTask
 import com.movtery.zalithlauncher.components.InstallableItem
+import com.movtery.zalithlauncher.game.multirt.CdsArchive
 import com.movtery.zalithlauncher.game.multirt.RuntimesManager
 import com.movtery.zalithlauncher.utils.device.Architecture
 import com.movtery.zalithlauncher.utils.file.readString
@@ -63,7 +64,9 @@ class UnpackJreTask(
             when {
                 //未安装该环境
                 installedRuntimeVersion == null -> InstallableItem.State.NOT_STARTED
+                //版本不一致需要重新解包；版本一致但缺 CDS 归档时只补生成归档
                 launcherRuntimeVersion != installedRuntimeVersion -> InstallableItem.State.PENDING
+                CdsArchive.needsGeneration(jre) -> InstallableItem.State.PENDING
                 else -> InstallableItem.State.FINISHED
             }
         }.onFailure { e ->
@@ -91,6 +94,13 @@ class UnpackJreTask(
     private fun getRuntimeByArch() = "bin-" + Architecture.archAsString(ZLApplication.DEVICE_ARCHITECTURE) + ".tar.xz"
 
     override suspend fun run() {
+        val installedRuntimeVersion = RuntimesManager.loadInternalRuntimeVersion(jre.jreName)
+        if (installedRuntimeVersion != null && installedRuntimeVersion == launcherRuntimeVersion) {
+            //运行时本体已是最新，仅缺少 CDS 归档（例如升级 launcher 后的首启）
+            CdsArchive.ensureInstalled(jre)
+            return
+        }
+
         runCatching {
             RuntimesManager.installRuntimeBinPack(
                 universalFileInputStream = assetManager.open(jre.jrePath + "/universal.tar.xz"),
@@ -102,6 +112,8 @@ class UnpackJreTask(
                 }
             )
             RuntimesManager.postPrepare(jre.jreName)
+            //归档生成失败不影响运行时安装结果（内部已捕获并记录）
+            CdsArchive.ensureInstalled(jre)
         }.onFailure {
             Logger.error("UnpackJre", "Internal JRE unpack failed", it)
         }.getOrThrow()
