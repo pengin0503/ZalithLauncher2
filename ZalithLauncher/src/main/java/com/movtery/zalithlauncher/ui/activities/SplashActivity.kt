@@ -309,7 +309,7 @@ class SplashActivity : BaseAppCompatActivity() {
             if (areAllTasksFinished()) {
                 GameSettings.javaRuntime.apply {
                     //检查并设置默认的Java环境
-                    if (getValue().isEmpty()) save(Jre.JRE_8.jreName)
+                    if (getValue().isEmpty()) save(Jre.JRE_21.jreName)
                 }
                 finishSplash()
             }

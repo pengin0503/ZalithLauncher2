@@ -32,6 +32,8 @@ val defaultKeyPassword = project.findProperty("default_key_password") as? String
 val defaultCurseForgeApiKey = project.findProperty("curseforge_api_key") as? String
 
 val projectArch: String = System.getProperty("arch", "all")
+val liteBuild: Boolean =
+    (project.findProperty("liteBuild") as? String)?.toBoolean() ?: false
 
 fun getKeyFromLocal(envKey: String, fileName: String? = null, default: String? = null): String {
     val key = System.getenv(envKey)
@@ -321,14 +323,20 @@ androidComponents {
                 afterEvaluate {
                     val task = tasks.named("merge${variantName}Assets").get() as MergeSourceSetFolders
                     task.inputs.property("lwjglArch", projectArch)
+                    task.inputs.property("liteBuild", liteBuild)
                     task.doLast {
                         val assetsDir = task.outputDir.get().asFile
                         val tag = "JREAssetsCleanup"
                         logger.lifecycle("[$tag] arch: $projectArch")
                         val jreList = listOf("jre-8", "jre-17", "jre-21", "jre-25")
+                        val droppedJres = if (liteBuild) setOf("jre-8", "jre-17") else emptySet()
                         jreList.forEach { jreVersion ->
                             val runtimeDir = File("$assetsDir/runtimes/$jreVersion")
                             logger.lifecycle("[$tag] runtimeDir: ${runtimeDir.absolutePath}")
+                            if (jreVersion in droppedJres) {
+                                logger.lifecycle("[$tag] lite: drop entire $jreVersion: ${runtimeDir.deleteRecursively()}")
+                                return@forEach
+                            }
                             runtimeDir.listFiles()?.forEach {
                                 if (projectArch != "all" && it.name != "version" && !it.name.contains("universal") && it.name != "bin-$projectArch.tar.xz") {
                                     logger.lifecycle("[$tag] delete: $it : ${it.delete()}")
