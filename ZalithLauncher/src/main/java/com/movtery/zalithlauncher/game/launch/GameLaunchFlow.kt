@@ -267,10 +267,11 @@ class GameLaunchFlow(scope: CoroutineScope) {
         val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
         val vmActivityName = VMActivity::class.java.name
         am.appTasks.any { task ->
-            val info = task.taskInfo
+            // taskInfo 可能为 null（任务已移除等）：无法判断该任务，按“有会话”处理，不 kill
+            val info: ActivityManager.RecentTaskInfo = task.taskInfo ?: return@any true
             info.baseActivity?.className == vmActivityName ||
                 info.topActivity?.className == vmActivityName ||
-                info.baseIntent.component?.className == vmActivityName
+                info.baseIntent?.component?.className == vmActivityName
         }
     }.getOrDefault(true) // 无法判断时按“有会话”处理，不 kill
 
