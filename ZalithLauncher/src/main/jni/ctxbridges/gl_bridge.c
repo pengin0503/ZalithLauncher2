@@ -9,8 +9,10 @@
 #include <stdbool.h>
 #include <environ/environ.h>
 #include <unistd.h>
+#include <time.h>
 #include "gl_bridge.h"
 #include "egl_loader.h"
+#include "surface_wait.h"
 
 //
 // Created by maks on 17.09.2022.
@@ -138,16 +140,24 @@ gl_render_window_t* gl_init_context(gl_render_window_t *share) {
     return bundle;
 }
 
+static void gl_swap_to_new_surface(gl_render_window_t* bundle) {
+    __android_log_print(ANDROID_LOG_ERROR, g_LogTag, "Switching to new native surface");
+    bundle->nativeSurface = bundle->newNativeSurface;
+    bundle->newNativeSurface = NULL;
+    ANativeWindow_acquire(bundle->nativeSurface);
+    ANativeWindow_setBuffersGeometry(bundle->nativeSurface, 0, 0, bundle->format);
+    bundle->surface = eglCreateWindowSurface_p(g_EglDisplay, bundle->config, bundle->nativeSurface, NULL);
+}
+
 void gl_swap_surface(gl_render_window_t* bundle) {
+    // Snapshot the generation before inspecting the pending window, so a bump
+    // that arrives in between is seen as a change (never folded into the baseline).
+    uint64_t generation = zalith_surface_generation();
+
     // 有新 Surface 待切换，这里直接切换
     if (bundle->newNativeSurface != NULL)
     {
-        __android_log_print(ANDROID_LOG_ERROR, g_LogTag, "Switching to new native surface");
-        bundle->nativeSurface = bundle->newNativeSurface;
-        bundle->newNativeSurface = NULL;
-        ANativeWindow_acquire(bundle->nativeSurface);
-        ANativeWindow_setBuffersGeometry(bundle->nativeSurface, 0, 0, bundle->format);
-        bundle->surface = eglCreateWindowSurface_p(g_EglDisplay, bundle->config, bundle->nativeSurface, NULL);
+        gl_swap_to_new_surface(bundle);
         return;
     }
 
@@ -163,21 +173,57 @@ void gl_swap_surface(gl_render_window_t* bundle) {
      * isn't so we wait for them and hope there is no race condition of both us and Android trying
      * to release the surface. This seems driver dependent as AVD and Waydroid do not need 0.75s
      * to set the bloody height and width to their proper values. They just do it, instantly.
+     *
+     * FF-F1-2: instead of a fixed 750 ms sleep, wait for setupBridgeWindow() to bump the
+     * surface generation. A new window wakes us immediately; if none arrives we still
+     * wait at most 750 ms and then use the 1x1 pbuffer fallback below.
      */
-    usleep(750000); // An overkill amount of time to wait for a surface to finish dying
-    int32_t nativeWindowWidth = ANativeWindow_getWidth(pojav_environ->pojavWindow);
-    int32_t nativeWindowHeight = ANativeWindow_getHeight(pojav_environ->pojavWindow);
-    if ((nativeWindowWidth > 0) || (nativeWindowHeight > 0)) {
-        __android_log_print(ANDROID_LOG_INFO, g_LogTag, "Native surface dimensions (%d x %d)\n",
-                            nativeWindowWidth, nativeWindowHeight);
-        if (bundle->nativeSurface != NULL) {
-            ANativeWindow_release(bundle->nativeSurface);
-        }
-        if (bundle->surface != NULL) eglDestroySurface_p(g_EglDisplay, bundle->surface);
+    struct timespec wait_start;
+    struct timespec wait_end;
+    clock_gettime(CLOCK_MONOTONIC, &wait_start);
+    uint64_t new_generation = zalith_surface_wait_for_change(generation, 750);
+    clock_gettime(CLOCK_MONOTONIC, &wait_end);
+    long waited_ms = (wait_end.tv_sec - wait_start.tv_sec) * 1000L
+                   + (wait_end.tv_nsec - wait_start.tv_nsec) / 1000000L;
+
+    if (new_generation != generation) {
+        __android_log_print(ANDROID_LOG_INFO, g_LogTag,
+                            "Surface generation changed while waiting (%llu -> %llu, %ld ms)",
+                            (unsigned long long) generation, (unsigned long long) new_generation,
+                            waited_ms);
     } else {
         __android_log_print(ANDROID_LOG_WARN, g_LogTag,
-                            "Native surface dimensions (%d x %d) are invalid! Assuming android has already released window.\n",
-                            nativeWindowWidth, nativeWindowHeight);
+                            "Surface wait timed out after %ld ms (generation %llu unchanged)",
+                            waited_ms, (unsigned long long) generation);
+    }
+
+    // Re-check the pending window: it may have been installed just before we
+    // sampled the generation (so its bump was already in our baseline) or just
+    // after the wait timed out. Using it is always preferable to the pbuffer.
+    if (bundle->newNativeSurface != NULL) {
+        gl_swap_to_new_surface(bundle);
+        return;
+    }
+
+    if (pojav_environ->pojavWindow != NULL) {
+        int32_t nativeWindowWidth = ANativeWindow_getWidth(pojav_environ->pojavWindow);
+        int32_t nativeWindowHeight = ANativeWindow_getHeight(pojav_environ->pojavWindow);
+        if ((nativeWindowWidth > 0) || (nativeWindowHeight > 0)) {
+            __android_log_print(ANDROID_LOG_INFO, g_LogTag, "Native surface dimensions (%d x %d)\n",
+                                nativeWindowWidth, nativeWindowHeight);
+            if (bundle->nativeSurface != NULL) {
+                ANativeWindow_release(bundle->nativeSurface);
+            }
+            if (bundle->surface != NULL) eglDestroySurface_p(g_EglDisplay, bundle->surface);
+        } else {
+            __android_log_print(ANDROID_LOG_WARN, g_LogTag,
+                                "Native surface dimensions (%d x %d) are invalid! Assuming android has already released window.\n",
+                                nativeWindowWidth, nativeWindowHeight);
+        }
+    } else {
+        // FF-F1-2 NULL guard: pojavWindow may not have been installed yet.
+        __android_log_print(ANDROID_LOG_WARN, g_LogTag,
+                            "pojavWindow is NULL, skipping the native surface dimension check");
     }
 
     // 无新窗口可用，回退到 1x1 pbuffer 避免渲染彻底中断

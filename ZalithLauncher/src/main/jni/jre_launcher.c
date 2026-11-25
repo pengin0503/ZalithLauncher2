@@ -36,6 +36,7 @@
 #include "logger/logger.h"
 #include "utils.h"
 #include "environ/environ.h"
+#include "bigcoreaffinity.h"
 
 // Uncomment to try redirect signal handling to JVM
 // #define TRY_SIG2JVM
@@ -184,7 +185,25 @@ JNIEXPORT jint JNICALL Java_com_oracle_dalvik_VMLauncher_launchJVM(JNIEnv *env, 
     char **argv = convert_to_char_array(env, argsArray);
     LOG_TO_D("Done processing args");
 
+    // CORE_PLAN_A F1-4: pin the game/JVM threads to the big-core set. JLI_Launch
+    // starts JavaMain on a new pthread, which inherits this thread's mask. The
+    // dalvik UI/render threads already exist and are intentionally unaffected.
+    // Every failure inside these helpers is log-only.
+    const char *cpu_ids = getenv("ZALITH_CPU_IDS");
+    int applied_cpus = zalith_apply_affinity(cpu_ids);
+    if (applied_cpus > 0) {
+        LOG_TO_I("Big-core affinity applied to %d CPU(s) from ZALITH_CPU_IDS='%s'",
+                 applied_cpus, cpu_ids);
+    } else {
+        LOG_TO_I("Big-core affinity not applied (ZALITH_CPU_IDS='%s'), continuing",
+                 cpu_ids != NULL ? cpu_ids : "(unset)");
+    }
+
     res = launchJVM(argc, argv);
+
+    // Restore the launcher thread's original mask; Java threads keep the pinned
+    // mask they inherited for their whole lifetime.
+    zalith_restore_affinity();
 
     LOG_TO_D("Going to free args");
     free_char_array(env, argsArray, argv);

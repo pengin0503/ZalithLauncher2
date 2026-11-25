@@ -172,6 +172,9 @@ private const val INTENT_RUN_JAR = "INTENT_RUN_JAR"
 private const val INTENT_GAME_CONFIG = "INTENT_GAME_CONFIG"
 private const val INTENT_JAR_INFO = "INTENT_JAR_INFO"
 
+/** 放大镜显示期间的画面捕获间隔（15 fps），避免每帧全屏 GPU→CPU readback（CORE_PLAN_A F1-1） */
+private const val MAGNIFIER_CAPTURE_INTERVAL_MS = 66L
+
 data class LaunchSession(
     val activityTitle: String,
     val launcher: Launcher,
@@ -462,6 +465,8 @@ class VMActivity : BaseAppCompatActivity(), SurfaceTextureListener {
     private var magnifierBitmap: Bitmap? = null
     private var magnifierFrame by mutableStateOf<ImageBitmap?>(null)
     private var magnifierFrameVersion by mutableLongStateOf(0L)
+    /** 上一次真正执行 getBitmap 的时刻（elapsedRealtime） */
+    private var lastMagnifierCaptureTime = 0L
 
     private fun captureMagnifierFrame() {
         if (!vmViewModel.inputMagnifierState.isVisible) return
@@ -469,6 +474,11 @@ class VMActivity : BaseAppCompatActivity(), SurfaceTextureListener {
         val width = textureView.width
         val height = textureView.height
         if (!textureView.isAvailable || width <= 0 || height <= 0) return
+
+        // F1-1: 放大镜显示期间最多每 66 ms 捕获一帧，跳过过于频繁的 getBitmap
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastMagnifierCaptureTime < MAGNIFIER_CAPTURE_INTERVAL_MS) return
+        lastMagnifierCaptureTime = now
 
         val bitmap = magnifierBitmap
             ?.takeIf { it.width == width && it.height == height }
