@@ -18,6 +18,7 @@
 
 package com.movtery.zalithlauncher.game.version.mod
 
+import androidx.annotation.Keep
 import com.movtery.zalithlauncher.BuildConfig
 import com.movtery.zalithlauncher.game.addons.modloader.ModLoader
 import com.movtery.zalithlauncher.path.PathManager
@@ -138,6 +139,8 @@ internal object ModMetadataCache {
         }
     }
 
+    //通过 GSON 反射读写：保留字段名，避免 R8 混淆后同 versionCode 的不同构建互相读到错位/空字段
+    @Keep
     private data class CacheFile(
         val version: Int = 0,
         val appVersion: Int = 0,
@@ -148,6 +151,7 @@ internal object ModMetadataCache {
 /**
  * 序列化后的模组元数据，足以还原一个 [LocalMod]
  */
+@Keep
 internal data class CachedModMetadata(
     val size: Long = 0L,
     val lastModified: Long = 0L,

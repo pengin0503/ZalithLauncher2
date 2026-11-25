@@ -82,6 +82,17 @@ static void logSyncNow(void) {
     pthread_mutex_unlock(&logSyncLock);
 }
 
+// Exit-path flush. nominal_exit() is also reached via jre_launcher.c's
+// abort_waiter: the signalled thread spins forever in abort_waiter_handler()
+// while the waiter thread calls nominal_exit(). If the signal interrupted a
+// thread inside logSyncAfterWrite() (holding logSyncLock), taking the lock here
+// would block forever and the process would never exit. The batching counters
+// no longer matter once the process is going away, so sync without the lock.
+static void logSyncOnExit(void) {
+    int fd = latestlog_fd;
+    if (fd > 0) fdatasync(fd);
+}
+
 // Start batching from a clean slate whenever a new log file is opened.
 static void logSyncReset(void) {
     pthread_mutex_lock(&logSyncLock);
@@ -186,7 +197,7 @@ Java_com_movtery_zalithlauncher_bridge_LoggerBridge_start(JNIEnv *env, __attribu
 _Noreturn void nominal_exit(int code, bool is_signal) {
     // Explicit flush point: the JVM is going away, so make sure the tail of the
     // log is on disk even if it is below the batching thresholds.
-    logSyncNow();
+    logSyncOnExit();
 
     JNIEnv *env;
     jint errorCode = (*exitTrap_jvm)->GetEnv(exitTrap_jvm, (void**)&env, JNI_VERSION_1_6);

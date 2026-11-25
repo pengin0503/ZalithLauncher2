@@ -648,6 +648,9 @@ class VMActivity : BaseAppCompatActivity(), SurfaceTextureListener {
                     // 加载插件：FF-F2-3 优先只加载主进程缓存中的选中渲染器插件包；
                     // 缓存缺失/过期时回退到原有的全量扫描
                     if (!PluginLoader.loadSelectedRendererPlugin(this@VMActivity)) {
+                        // 快速路径失败前可能已向 Renderers 注册了部分插件渲染器；
+                        // 先重置，否则全量扫描会把它们判为重复并从插件管理器中移除
+                        Renderers.init(true)
                         PluginLoader.loadAllPlugins(this@VMActivity, true)
                     }
                     refreshData()

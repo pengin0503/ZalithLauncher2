@@ -86,7 +86,15 @@ class GameLauncher(
     config: LaunchConfig,
     onExit: (code: Int, isSignal: Boolean) -> Unit,
     openPath: (folder: File) -> Unit
-) : Launcher(onExit, openPath) {
+) : Launcher(
+    onExit = { code, isSignal ->
+        //正常退出走 native nominal_exit -> jvmExit，进程随后结束、launchJvm 不会返回，
+        //因此必须在这里处理会话标记，否则每次启动都会被判定为“上次非正常退出”
+        VerifyStampStore.onGameSessionExited(sessionStampKey(config.version), code, isSignal)
+        onExit(code, isSignal)
+    },
+    openPath = openPath
+) {
     private lateinit var gameManifest: GameManifest
     private var jnaDir: File? = null
     private var configuredRenderer: RendererLaunchConfig? = null
@@ -290,7 +298,7 @@ class GameLauncher(
         tryStartTouchProxy()
 
         //标记会话已开始：若进程在正常返回前死亡，下次启动将强制全量校验游戏文件
-        VerifyStampStore.markSessionRunning()
+        VerifyStampStore.markSessionRunning(sessionStampKey(version))
         val exitCode = launchJvm(
             context = activity,
             jvmArgs = launchArgs,
@@ -299,7 +307,8 @@ class GameLauncher(
             screenSize = screenSize
         )
         //仅正常退出（code == 0）才清除标记，崩溃/被杀会留下标记
-        VerifyStampStore.onGameSessionExited(exitCode)
+        //极少数情况下 launchJvm 会直接返回（未经过 exit hook），此时同样处理会话标记
+        VerifyStampStore.onGameSessionExited(sessionStampKey(version), exitCode)
         return exitCode
     }
 
@@ -648,3 +657,7 @@ private fun getDetectedVersion(): Int {
         return -3
     }
 }
+
+/** 与 [com.movtery.zalithlauncher.game.version.download.GameVerifySession.open] 使用相同的定位键 */
+private fun sessionStampKey(version: Version): String =
+    VerifyStampStore.gameStampKey(version.getGameHome(), version.getVersionName())
