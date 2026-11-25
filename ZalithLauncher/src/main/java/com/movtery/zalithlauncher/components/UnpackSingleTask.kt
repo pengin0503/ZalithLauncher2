@@ -20,6 +20,7 @@ package com.movtery.zalithlauncher.components
 
 import android.content.Context
 import com.movtery.zalithlauncher.context.copyAssetFile
+import com.movtery.zalithlauncher.game.version.download.VerifyStampStore
 import com.movtery.zalithlauncher.utils.file.ensureDirectory
 import com.movtery.zalithlauncher.utils.logging.Logger
 import com.movtery.zalithlauncher.utils.string.getMessageOrToString
@@ -43,17 +44,21 @@ abstract class UnpackSingleTask(
         return manifest.files.map { it.toComponentFile() }
     }
 
-    private fun loadComponentFiles(): List<ComponentFile> {
-        val manifest = context.assets.open("$assetsDirName/$ASSET_MANIFEST_FILE").use { input ->
-            val json = input.bufferedReader().use { it.readText() }
-            parseAssetManifest(json, assetsDirName)
+    /**
+     * @return 待安装文件与清单原文的 SHA-1（作为组件验证 stamp 的世代键）
+     */
+    private fun loadComponent(): Pair<List<ComponentFile>, String> {
+        val json = context.assets.open("$assetsDirName/$ASSET_MANIFEST_FILE").use { input ->
+            input.bufferedReader().use { it.readText() }
         }
-        return selectFiles(manifest).also { validateComponentFiles(it) }
+        val manifest = parseAssetManifest(json, assetsDirName)
+        val files = selectFiles(manifest).also { validateComponentFiles(it) }
+        return files to VerifyStampStore.sha1Hex(json)
     }
 
     override suspend fun checkState(): InstallableItem.State {
-        val files = try {
-            loadComponentFiles()
+        val (files, manifestHash) = try {
+            loadComponent()
         } catch (e: Exception) {
             Logger.error(TAG, "Failed to load asset manifest: $assetsDirName", e)
             updateMessage(e.getMessageOrToString())
@@ -66,12 +71,25 @@ abstract class UnpackSingleTask(
 
         return try {
             val ignoredMetadata = setOf(ASSET_MANIFEST_FILE, LEGACY_VERSION_FILE)
-            if (verifyComponentDirectory(dir, files, ignoredMetadata)) {
-                Logger.info(TAG, "$fileDirName: Pack passed SHA-1 verification, continuing...")
-                InstallableItem.State.FINISHED
-            } else {
-                Logger.info(TAG, "$fileDirName: Pack failed SHA-1 verification, reinstalling...")
-                InstallableItem.State.PENDING
+            val stampFile = VerifyStampStore.componentStampFile(fileDirName)
+            when {
+                //清单未变化且所有文件 size/mtime 与 stamp 一致：无需读取内容
+                VerifyStampStore.isComponentStampValid(stampFile, manifestHash, dir, files, ignoredMetadata) -> {
+                    Logger.info(TAG, "$fileDirName: Pack passed verification via stamp, continuing...")
+                    InstallableItem.State.FINISHED
+                }
+
+                verifyComponentDirectory(dir, files, ignoredMetadata) -> {
+                    Logger.info(TAG, "$fileDirName: Pack passed SHA-1 verification, continuing...")
+                    //没有可用 stamp 时做了一次全量校验，顺手补写 stamp
+                    VerifyStampStore.saveComponentStamp(stampFile, manifestHash, dir, files)
+                    InstallableItem.State.FINISHED
+                }
+
+                else -> {
+                    Logger.info(TAG, "$fileDirName: Pack failed SHA-1 verification, reinstalling...")
+                    InstallableItem.State.PENDING
+                }
             }
         } catch (e: CancellationException) {
             throw e
@@ -83,7 +101,7 @@ abstract class UnpackSingleTask(
 
     override suspend fun run() {
         updateMessage(null)
-        val files = loadComponentFiles()
+        val (files, manifestHash) = loadComponent()
         val target = File(rootDir, fileDirName)
         val parent = target.parentFile ?: throw IOException("Target has no parent: $target")
         parent.ensureDirectory()
@@ -91,7 +109,7 @@ abstract class UnpackSingleTask(
         val staging = File(parent, ".${target.name}.installing")
         val backup = File(parent, ".${target.name}.backup")
         recoverInterruptedCommit(target, staging, backup)
-        installComponent(target, staging, backup, files)
+        installComponent(target, staging, backup, files, manifestHash)
     }
 
     private fun recoverInterruptedCommit(target: File, staging: File, backup: File) {
@@ -110,7 +128,8 @@ abstract class UnpackSingleTask(
         target: File,
         staging: File,
         backup: File,
-        files: List<ComponentFile>
+        files: List<ComponentFile>,
+        manifestHash: String
     ) {
         try {
             if (!staging.mkdir()) throw IOException("Failed to create staging directory: $staging")
@@ -128,6 +147,13 @@ abstract class UnpackSingleTask(
                 throw IOException("Staged component failed SHA-1 verification: $fileDirName")
             }
             commitComponent(target, staging, backup)
+            //commit 已成功，此时写入的 stamp 才与目标目录的真实内容对应
+            VerifyStampStore.saveComponentStamp(
+                VerifyStampStore.componentStampFile(fileDirName),
+                manifestHash,
+                target,
+                files
+            )
             Logger.info(TAG, "$fileDirName: unpacked and verified ${files.size} files")
         } finally {
             if (staging.exists()) {

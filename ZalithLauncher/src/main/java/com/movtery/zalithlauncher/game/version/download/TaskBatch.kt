@@ -47,11 +47,18 @@ suspend fun Task.runBatchDownloads(
     maxConnections: Int,
     retryRounds: Int = 1,
     onSnapshot: suspend (BatchProgress) -> Unit = {},
-    acceptFailure: ((task: DownloadTask, error: Throwable) -> Boolean)? = null
+    acceptFailure: ((task: DownloadTask, error: Throwable) -> Boolean)? = null,
+    /** 游戏文件验证 stamp 会话；为 null 时保持原来的全量哈希行为 */
+    verifySession: GameVerifySession? = null
 ) {
     val verifyStarted = System.currentTimeMillis()
-    val (reusable, pending) = verifyExistingFilesConcurrently(tasks)
-    Logger.info(TAG, "Local file check done: reusable=${reusable.size} pending=${pending.size}, took=${System.currentTimeMillis() - verifyStarted}ms")
+    val (reusable, pending) = verifyExistingFilesConcurrently(tasks, verifySession)
+    val stampInfo = verifySession?.let {
+        ", stampSkipped=${it.stampSkippedCount} hashed=${it.hashedCount}"
+    } ?: ""
+    Logger.info(TAG, "Local file check done: reusable=${reusable.size} pending=${pending.size}, took=${System.currentTimeMillis() - verifyStarted}ms$stampInfo")
+    //本地校验阶段已经覆盖全部文件（含全量重算），可以安全清理上次非正常退出的标记
+    verifySession?.onVerificationPassFinished()
 
     //清单里只要有未声明大小的文件，字节数就不能构成可靠的进度分母
     val sizesFullyKnown = tasks.all { it.size > 0 }
@@ -80,7 +87,11 @@ suspend fun Task.runBatchDownloads(
         onSnapshot(snapshot)
     }
     batch.onFileSuccess = { request ->
-        (request.tag as? DownloadTask)?.runFileDownloadedTask()
+        (request.tag as? DownloadTask)?.let { downloadTask ->
+            downloadTask.runFileDownloadedTask()
+            //下载引擎已校验 SHA-1，可直接写入新的 stamp 记录
+            verifySession?.onDownloaded(downloadTask)
+        }
     }
     acceptFailure?.let { judge ->
         batch.onFailureFilter = { request, error ->
@@ -97,6 +108,7 @@ suspend fun Task.runBatchDownloads(
         val failedDetail = batch.lastRunFailures.keys.joinToString("\n") { path -> path }
         throw DownloadFailedException("Failed downloads:\n$failedDetail", e)
     } finally {
+        verifySession?.finish()
         clearSpeed()
     }
 }
@@ -105,16 +117,27 @@ suspend fun Task.runBatchDownloads(
  * 并行校验本地已存在的文件是否可复用
  */
 private suspend fun verifyExistingFilesConcurrently(
-    tasks: List<DownloadTask>
+    tasks: List<DownloadTask>,
+    verifySession: GameVerifySession?
 ): Pair<List<DownloadTask>, List<DownloadTask>> =
     withContext(Dispatchers.IO.limitedParallelism(LOCAL_VERIFY_PARALLELISM)) {
         coroutineScope {
             tasks.map { task ->
-                async { task to task.existingFileValid() }
+                async { task to verifyLocalFile(task, verifySession) }
             }.awaitAll()
         }.partition { it.second }
             .let { (reusable, pending) -> reusable.map { it.first } to pending.map { it.first } }
     }
+
+/**
+ * 单个本地文件校验：stamp 命中时只看 size/mtime，否则走原有的哈希校验
+ */
+private fun verifyLocalFile(task: DownloadTask, verifySession: GameVerifySession?): Boolean {
+    if (verifySession != null && verifySession.isStampValid(task)) return true
+    val valid = task.existingFileValid()
+    verifySession?.onHashed(task, valid)
+    return valid
+}
 
 /**
  * 进度条的显示策略：
