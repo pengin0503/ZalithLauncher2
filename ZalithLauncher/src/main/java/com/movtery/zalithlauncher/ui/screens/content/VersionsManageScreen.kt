@@ -132,13 +132,6 @@ private class VersionsScreenViewModel : ViewModel() {
     /** 游戏路径相关操作 */
     var gamePathOperation by mutableStateOf<GamePathOperation>(GamePathOperation.None)
 
-    /** 全部版本的数量 */
-    var allVersionsCount by mutableIntStateOf(0)
-    /** 原版版本数量 */
-    var vanillaVersionsCount by mutableIntStateOf(0)
-    /** 模组加载器版本数量 */
-    var modloaderVersionsCount by mutableIntStateOf(0)
-
     fun startRefreshVersions() {
         if (!VersionsManager.isRefreshing.value) {
             VersionsManager.refresh("VersionsScreenViewModel.startRefreshVersions")
@@ -218,31 +211,42 @@ private fun rememberVersionViewModel() : VersionsScreenViewModel {
     }
 }
 
+/** The filtered list and its tab counts, derived from one version-list snapshot. */
+private data class VersionsDisplayState(
+    val versions: List<Version>,
+    val allCount: Int,
+    val vanillaCount: Int,
+    val modloaderCount: Int
+)
+
 @Composable
 private fun rememberVersions(
     versions: StateFlow<List<Version>>,
     viewModel: VersionsScreenViewModel,
-): State<List<Version>> {
+): State<VersionsDisplayState> {
     val vers by versions.collectAsStateWithLifecycle()
     val category = viewModel.versionCategory
     val resortKey = viewModel.resortKey
 
     return remember(vers, category, resortKey) {
+        // Pure calculator: no ViewModel writes here, so the list and the tab
+        // counts can never be temporarily inconsistent with one another.
         derivedStateOf {
-            viewModel.allVersionsCount = vers.size
+            val vanillaVersions = vers.filter { it.versionType == VersionType.VANILLA }
+            val modloaderVersions = vers.filter { it.versionType == VersionType.MODLOADERS }
 
-            val vanillaVersions = vers
-                .filter { ver -> ver.versionType == VersionType.VANILLA }
-                .also { viewModel.vanillaVersionsCount = it.size }
-            val modloaderVersions = vers
-                .filter { ver -> ver.versionType == VersionType.MODLOADERS }
-                .also { viewModel.modloaderVersionsCount = it.size }
-
-            when (category) {
+            val shown = when (category) {
                 VersionCategory.ALL -> vers
                 VersionCategory.VANILLA -> vanillaVersions
                 VersionCategory.MODLOADER -> modloaderVersions
             }.sortedWith(VersionComparator)
+
+            VersionsDisplayState(
+                versions = shown,
+                allCount = vers.size,
+                vanillaCount = vanillaVersions.size,
+                modloaderCount = modloaderVersions.size
+            )
         }
     }
 }
@@ -257,7 +261,7 @@ fun VersionsManageScreen(
 ) {
     val viewModel = rememberVersionViewModel()
 
-    val versions by rememberVersions(VersionsManager.versions, viewModel)
+    val displayState by rememberVersions(VersionsManager.versions, viewModel)
     val currentVersion by VersionsManager.currentVersion.collectAsStateWithLifecycle()
     val isRefreshing by VersionsManager.isRefreshing.collectAsStateWithLifecycle()
 
@@ -304,13 +308,13 @@ fun VersionsManageScreen(
                     .weight(7.5f),
                 isVisible = isVisible,
                 isRefreshing = isRefreshing,
-                versions = versions,
+                versions = displayState.versions,
                 currentVersion = currentVersion,
                 versionCategory = viewModel.versionCategory,
                 onCategoryChange = { viewModel.changeCategory(it) },
-                allVersionsCount = viewModel.allVersionsCount,
-                vanillaVersionsCount = viewModel.vanillaVersionsCount,
-                modloaderVersionsCount = viewModel.modloaderVersionsCount,
+                allVersionsCount = displayState.allCount,
+                vanillaVersionsCount = displayState.vanillaCount,
+                modloaderVersionsCount = displayState.modloaderCount,
                 navigateToVersions = navigateToVersions,
                 navigateToExport = navigateToExport,
                 submitError = submitError,
