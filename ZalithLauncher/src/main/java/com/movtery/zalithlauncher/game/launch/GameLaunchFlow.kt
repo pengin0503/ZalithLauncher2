@@ -211,7 +211,15 @@ class GameLaunchFlow(scope: CoroutineScope) {
                 } catch (e: Throwable) {
                     //阶段构建失败也算启动失败，回收提前拉起的服务
                     stopPrewarmedService(generation)
-                    throw e
+                    // executePhasesAsync 的 onStart 在其 try/catch 之外：只 rethrow 会让
+                    // onError/onComplete 都不执行，UI 永远停留在“启动中”。
+                    handleError(
+                        ErrorViewModel.ThrowableMessage(
+                            title = androidText(R.string.generic_error),
+                            message = androidText(e.getMessageOrToString())
+                        )
+                    )
+                    onComplete()
                 }
             },
             onComplete = onComplete,
