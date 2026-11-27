@@ -27,8 +27,10 @@ import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.movtery.zalithlauncher.BuildKeys
@@ -57,6 +59,7 @@ import com.movtery.zalithlauncher.utils.logging.Logger
 import com.movtery.zalithlauncher.viewmodel.SplashBackStackViewModel
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -83,7 +86,13 @@ private const val ACCEPTED_AGREEMENT_VERSION_KEY = "acceptedAgreementVersion"
 @SuppressLint("CustomSplashScreen")
 @AndroidEntryPoint
 class SplashActivity : BaseAppCompatActivity() {
-    private val unpackItems: MutableList<InstallableItem> = ArrayList()
+    /**
+     * ST5: task construction lists APK asset directories and reads version
+     * files, so it runs on IO. The flow lets the UI draw immediately (empty
+     * list) and converge once construction finishes.
+     */
+    private val unpackItems = MutableStateFlow<List<InstallableItem>>(emptyList())
+    private val itemsReady = CompletableDeferred<Unit>()
     private val finishedTaskCount = AtomicInteger(0)
     private var unpackJob: Job? = null
 
@@ -131,9 +140,19 @@ class SplashActivity : BaseAppCompatActivity() {
         installSplashScreen()
         super.onCreate(savedInstanceState)
 
-        initUnpackItems()
+        // ST5: keep APK asset I/O (directory listings + version reads) off the
+        // main thread before the first Compose frame.
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                initUnpackItems()
+            } finally {
+                // Never leave checkAllTask/onNewIntent waiting if construction fails.
+                itemsReady.complete(Unit)
+            }
+        }
 
         setContent {
+            val items by unpackItems.collectAsStateWithLifecycle()
             ZalithLauncherTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
@@ -149,7 +168,7 @@ class SplashActivity : BaseAppCompatActivity() {
                         },
                         onExitClick = { finishAffinity() },
                         availableAgreement = availableAgreement,
-                        unpackItems = unpackItems,
+                        unpackItems = items,
                         screenViewModel = backStackViewModel
                     )
                 }
@@ -205,9 +224,10 @@ class SplashActivity : BaseAppCompatActivity() {
     }
 
     private fun initUnpackItems() {
+        val items = mutableListOf<InstallableItem>()
         Components.entries.forEach { component ->
             val task = UnpackComponentsTask(this@SplashActivity, component)
-            unpackItems.add(
+            items.add(
                 InstallableItem(
                     component.displayName,
                     getString(component.summary),
@@ -218,7 +238,7 @@ class SplashActivity : BaseAppCompatActivity() {
         Jre.entries.forEach { jre ->
             val task = UnpackJreTask(this@SplashActivity, jre)
             if (!task.isCheckFailed()) {
-                unpackItems.add(
+                items.add(
                     InstallableItem(
                         jre.jreName,
                         getString(jre.summary),
@@ -227,23 +247,26 @@ class SplashActivity : BaseAppCompatActivity() {
                 )
             }
         }
-        unpackItems.add(
+        items.add(
             InstallableItem(
                 "JNA",
                 getString(R.string.unpack_screen_jna),
                 UnpackJnaTask(this@SplashActivity)
             )
         )
-        unpackItems.sort()
+        items.sort()
+        unpackItems.value = items
     }
 
     private suspend fun checkAllTask() {
+        // ST5: the IO construction job must publish the items before states are checked.
+        itemsReady.await()
         //检查应用 assets 目录
         listAssetsPath("runtimes").forEach { filePath ->
             Logger.info(TAG, "The launcher contains the runtime environment: $filePath")
         }
 
-        unpackItems.forEach { item ->
+        unpackItems.value.forEach { item ->
             val state = item.task.checkState()
             item.updateState(state)
             if (state == InstallableItem.State.FINISHED) {
@@ -281,7 +304,8 @@ class SplashActivity : BaseAppCompatActivity() {
         switchScreen(SplashOperation.Unpacking)
 
         unpackJob = lifecycleScope.launch {
-            val jobs = unpackItems
+            itemsReady.await()
+            val jobs = unpackItems.value
                 .filter {
                     val state = it.state.value
                     state == InstallableItem.State.NOT_STARTED ||
@@ -422,6 +446,8 @@ class SplashActivity : BaseAppCompatActivity() {
     }
 
     private fun areAllTasksFinished(): Boolean {
-        return finishedTaskCount.get() >= unpackItems.size
+        // ST5: do not treat "items not constructed yet" as "everything done".
+        if (!itemsReady.isCompleted) return false
+        return finishedTaskCount.get() >= unpackItems.value.size
     }
 }
