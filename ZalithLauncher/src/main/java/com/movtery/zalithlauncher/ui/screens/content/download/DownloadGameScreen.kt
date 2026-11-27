@@ -19,6 +19,7 @@
 package com.movtery.zalithlauncher.ui.screens.content.download
 
 import android.content.Context
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,9 +50,12 @@ import com.movtery.zalithlauncher.game.download.game.optifine.CantFetchingOptiFi
 import com.movtery.zalithlauncher.game.download.game.optifine.OptiFineForge17IncompatibleException
 import com.movtery.zalithlauncher.game.download.jvm_server.JvmCrashException
 import com.movtery.zalithlauncher.game.download.jvm_server.isProcessStartRefused
+import com.movtery.zalithlauncher.game.download.perfpack.PerfPackInstaller
+import com.movtery.zalithlauncher.game.download.perfpack.PerfPackSummary
 import com.movtery.zalithlauncher.game.version.download.DownloadFailedException
 import com.movtery.zalithlauncher.game.version.installed.VersionsManager
 import com.movtery.zalithlauncher.notification.NotificationManager
+import com.movtery.zalithlauncher.setting.GameSettings
 import com.movtery.zalithlauncher.ui.components.AppAlertDialog
 import com.movtery.zalithlauncher.ui.components.MarqueeText
 import com.movtery.zalithlauncher.ui.components.NotificationCheck
@@ -74,6 +78,9 @@ import com.movtery.zalithlauncher.utils.network.isUsingMobileData
 import com.movtery.zalithlauncher.viewmodel.EventViewModel
 import com.movtery.zalithlauncher.viewmodel.sendKeepScreen
 import io.ktor.client.plugins.HttpRequestTimeoutException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
 import java.net.ConnectException
 import java.net.SocketTimeoutException
@@ -130,6 +137,21 @@ private class GameDownloadViewModel: ViewModel() {
                     installOperation = GameInstallOperation.Success
                     refreshVersionNameCheck()
                     onStop()
+
+                    // Best effort only: this runs in a separate IO job so a network
+                    // failure here can never fail or block the completed install.
+                    if (GameSettings.autoInstallPerfPack.getValue()) {
+                        val appContext = context.applicationContext
+                        viewModelScope.launch(Dispatchers.IO) {
+                            val summary = PerfPackInstaller.install(info, version)
+                            if (!summary.isEmpty) {
+                                val text = perfPackSummaryText(appContext, summary)
+                                withContext(Dispatchers.Main) {
+                                    Toast.makeText(appContext, text, Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    }
                 },
                 onError = { th ->
                     installer = null
@@ -160,6 +182,20 @@ private class GameDownloadViewModel: ViewModel() {
     override fun onCleared() {
         cancel()
     }
+}
+
+private fun perfPackSummaryText(context: Context, summary: PerfPackSummary): String {
+    val installed = if (summary.installed.isEmpty()) {
+        context.getString(R.string.perf_pack_none)
+    } else {
+        summary.installed.joinToString(", ")
+    }
+    return context.getString(
+        R.string.perf_pack_toast_summary,
+        installed,
+        summary.skipped.size,
+        summary.failed.size
+    )
 }
 
 @Composable

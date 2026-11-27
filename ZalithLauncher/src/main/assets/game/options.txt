@@ -1,6 +1,6 @@
 fov:0.0
-renderDistance:4
-simulationDistance:4
+renderDistance:8
+simulationDistance:5
 graphicsMode:0
 fancyGraphics:false
 clouds:false

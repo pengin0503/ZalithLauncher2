@@ -1892,6 +1892,10 @@
     <string name="settings_game_skip_game_integrity_check_title">Skip Integrity Check</string>
     <!-- Summary of the skip integrity check switch in the Game settings tab and version settings -->
     <string name="settings_game_skip_game_integrity_check_summary">When launching the game, mismatched game files will not be re-downloaded</string>
+    <!-- Switch title in the Game settings tab for the auto-installed performance mod pack -->
+    <string name="settings_game_auto_install_perf_pack_title">Auto-install Performance Pack</string>
+    <!-- Summary of the performance pack switch: best-effort download of client-side mods into new modded instances -->
+    <string name="settings_game_auto_install_perf_pack_summary">When a new version with a mod loader is created, download a curated set of client-side performance mods into its mods folder. Best effort: unavailable or failed downloads are skipped, and instance creation is never blocked</string>
     <!-- Text field title in the Game tab and version settings for custom text shown inside the game -->
     <string name="settings_game_version_custom_info_title">Custom Version Info</string>
     <!-- Summary of the custom version info field, explaining where the text appears and the [zl_version] tag -->
@@ -1900,6 +1904,10 @@
     <string name="settings_game_auto_pick_java_runtime_title">Auto-Select Java</string>
     <!-- Summary of the auto-select Java switch in the Game settings tab -->
     <string name="settings_game_auto_pick_java_runtime_summary">When Java is required, the launcher will automatically select the appropriate environment. If unable to determine, it will use the default Java environment</string>
+    <!-- Placeholder used in the performance pack toast when nothing was installed -->
+    <string name="perf_pack_none">none</string>
+    <!-- Brief post-creation summary; %1$s is the installed mod list, %2$d skipped count, %3$d failed count -->
+    <string name="perf_pack_toast_summary">Performance pack: installed %1$s; skipped %2$d, failed %3$d</string>
     <!-- Settings item title in the Game tab and version settings to choose the Java runtime -->
     <string name="settings_game_java_runtime_title">Java Runtime</string>
     <!-- Summary of the Java runtime item in the Game settings tab -->

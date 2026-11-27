@@ -32,6 +32,11 @@ object GameSettings : SettingsRegistry() {
     val skipGameIntegrityCheck = boolSetting("skipGameIntegrityCheck", false)
 
     /**
+     * 新建带模组加载器的版本后，自动下载客户端性能优化模组（尽力而为）
+     */
+    val autoInstallPerfPack = boolSetting("autoInstallPerfPack", true)
+
+    /**
      * 版本自定义信息
      */
     val versionCustomInfo = stringSetting("versionCustomInfo", "${BuildKeys.LAUNCHER_IDENTIFIER}[zl_version]")
@@ -49,13 +54,13 @@ object GameSettings : SettingsRegistry() {
     /**
      * 游戏内存分配大小
      */
-    private val defaultRamAllocation: Int? = 2560
+    private val defaultRamAllocation: Int? = 3072
     val ramAllocation = intSetting("ramAllocation", defaultRamAllocation, min = 256)
 
     /**
      * 自定义Jvm启动参数
      */
-    val jvmArgs = stringSetting("jvmArgs", "-XX:+UseG1GC -XX:ParallelGCThreads=4")
+    val jvmArgs = stringSetting("jvmArgs", "-XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200 -XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC -XX:G1NewSizePercent=30 -XX:G1MaxNewSizePercent=40 -XX:G1HeapRegionSize=8M -XX:G1ReservePercent=20")
 
     /**
      * 已禁用的原生库插件列表

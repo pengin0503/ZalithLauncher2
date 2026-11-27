@@ -106,6 +106,14 @@ fun GameSettingsScreen(
                         summary = stringResource(R.string.settings_game_skip_game_integrity_check_summary)
                     )
 
+                    SwitchSettingsCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        position = CardPosition.Middle,
+                        unit = GameSettings.autoInstallPerfPack,
+                        title = stringResource(R.string.settings_game_auto_install_perf_pack_title),
+                        summary = stringResource(R.string.settings_game_auto_install_perf_pack_summary)
+                    )
+
                     TextInputSettingsCard(
                         modifier = Modifier.fillMaxWidth(),
                         position = CardPosition.Bottom,
