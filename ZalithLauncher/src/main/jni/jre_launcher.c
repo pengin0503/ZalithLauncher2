@@ -89,6 +89,10 @@ static void abort_waiter_setup() {
     const static int tracked_signals[] = {SIGABRT};
     const static int ntracked = (sizeof(tracked_signals) / sizeof(tracked_signals[0]));
     struct sigaction sigactions[ntracked];
+    // sa_mask/sa_flags/sa_restorer are otherwise stack garbage: the kernel may
+    // register random flags (SA_SIGINFO, SA_RESETHAND, ...) with undefined
+    // signal-mask behaviour. Zero everything, then set only sa_handler below.
+    memset(sigactions, 0, sizeof(sigactions));
     sigemptyset(&abort_waiter_data.tracked_sigset);
 
     for (size_t i = 0; i < ntracked; i++)
