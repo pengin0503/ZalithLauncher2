@@ -73,6 +73,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicLong
 
 /** 账号凭据已被服务端拒绝 */
 private class LaunchReloginRequired(
@@ -122,6 +123,16 @@ class GameLaunchFlow(scope: CoroutineScope) {
     @Volatile
     private var prewarmContext: Context? = null
 
+    /**
+     * 每次 launch 递增的世代号。TaskFlowExecutor.cancel() 会立刻把 job 置空，
+     * 但 onCancel/onError 是异步回调：若用户取消后又发起新一轮启动，上一轮的回调
+     * 不能回收新一轮刚拉起的服务。
+     */
+    private val launchGenerationCounter = AtomicLong()
+
+    @Volatile
+    private var activeLaunchGeneration = 0L
+
     /** FF-F1-3：与校验任务并行的账号校验任务 */
     @Volatile
     private var accountCheckJob: Job? = null
@@ -155,6 +166,8 @@ class GameLaunchFlow(scope: CoroutineScope) {
         }
 
         val account = AccountsManager.currentAccountFlow.value ?: return
+        val generation = launchGenerationCounter.incrementAndGet()
+        activeLaunchGeneration = generation
         var errorReported = false
         val handleError: (ErrorViewModel.ThrowableMessage) -> Unit = { message ->
             if (!errorReported) {
@@ -197,14 +210,14 @@ class GameLaunchFlow(scope: CoroutineScope) {
                     )
                 } catch (e: Throwable) {
                     //阶段构建失败也算启动失败，回收提前拉起的服务
-                    stopPrewarmedService()
+                    stopPrewarmedService(generation)
                     throw e
                 }
             },
             onComplete = onComplete,
             onError = { th ->
-                cancelAccountCheck()
-                stopPrewarmedService()
+                cancelAccountCheck(generation)
+                stopPrewarmedService(generation)
                 when (th) {
                     is LaunchReloginRequired -> onReloginRequired(th.account)
                     is LaunchCheckFailed -> onRefreshFailed(th.account, th.cause ?: th)
@@ -218,8 +231,8 @@ class GameLaunchFlow(scope: CoroutineScope) {
                 }
             },
             onCancel = {
-                cancelAccountCheck()
-                stopPrewarmedService()
+                cancelAccountCheck(generation)
+                stopPrewarmedService(generation)
             },
         )
     }
@@ -233,7 +246,8 @@ class GameLaunchFlow(scope: CoroutineScope) {
         stopPrewarmedService()
     }
 
-    private fun cancelAccountCheck() {
+    private fun cancelAccountCheck(generation: Long = activeLaunchGeneration) {
+        if (generation != activeLaunchGeneration) return
         accountCheckJob?.cancel()
         accountCheckJob = null
     }
@@ -247,7 +261,9 @@ class GameLaunchFlow(scope: CoroutineScope) {
      * 2. 本次流程从未尝试 runGame —— 没有为本次启动拉起过 VMActivity；
      * 3. 本应用的任务栈里没有 VMActivity —— 排除流程期间经由其它入口（如 runJar）进入 :game 的会话。
      */
-    private fun stopPrewarmedService() {
+    private fun stopPrewarmedService(generation: Long = activeLaunchGeneration) {
+        // 上一轮取消的延迟回调不能回收新一轮启动的服务
+        if (generation != activeLaunchGeneration) return
         if (!servicePrewarmed || gameStarted) return
         servicePrewarmed = false
         prewarmContext?.let { context ->
