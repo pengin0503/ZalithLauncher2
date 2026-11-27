@@ -184,6 +184,8 @@ private fun VersionConfigs(
     stateful: StatefulVersionConfig,
     modifier: Modifier = Modifier
 ) {
+    // ST4: plugin renderers may be registered on IO after this screen composes.
+    val renderers by Renderers.renderersFlow.collectAsStateWithLifecycle()
     SettingsCardColumn(
         modifier = modifier
     ) {
@@ -212,13 +214,12 @@ private fun VersionConfigs(
             summary = stringResource(R.string.settings_game_skip_game_integrity_check_summary)
         )
 
-        val renderers = Renderers.getRenderers()
         val renderersIdList = getIDList(renderers) { IDItem(it.getUniqueIdentifier(), it.getRendererName()) }
         val effectiveRendererId = stateful.renderer.ifEmpty { RendererSettings.renderer.state }
-        val effectiveRenderer = remember(effectiveRendererId) {
+        val effectiveRenderer = remember(effectiveRendererId, renderers) {
             renderers.find { it.getUniqueIdentifier() == effectiveRendererId }
         }
-        val configurableRenderer = remember(stateful.renderer) {
+        val configurableRenderer = remember(stateful.renderer, renderers) {
             if (stateful.renderer.isNotEmpty()) {
                 renderers.filterIsInstance<ConfigurableRenderer>()
                     .find { it.getUniqueIdentifier() == stateful.renderer }
@@ -232,7 +233,8 @@ private fun VersionConfigs(
         val loadedRenderers by produceState(
             initialValue = emptyMap(),
             key1 = configRevision,
-            key2 = stateful.versionPath
+            key2 = stateful.versionPath,
+            key3 = renderers
         ) {
             value = withContext(Dispatchers.IO) {
                 renderers.associateBy({ it.getUniqueIdentifier() }) { renderer ->

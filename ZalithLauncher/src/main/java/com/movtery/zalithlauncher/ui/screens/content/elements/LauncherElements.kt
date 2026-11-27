@@ -71,6 +71,7 @@ import com.movtery.zalithlauncher.game.account.auth_server.AuthServerHelper
 import com.movtery.zalithlauncher.game.account.isMicrosoftAccount
 import com.movtery.zalithlauncher.game.account.microsoftLogin
 import com.movtery.zalithlauncher.game.plugin.ApkPlugin
+import com.movtery.zalithlauncher.game.plugin.PluginLoader
 import com.movtery.zalithlauncher.game.plugin.natives.NativePluginManager
 import com.movtery.zalithlauncher.game.plugin.renderer.RendererPluginCache
 import com.movtery.zalithlauncher.game.plugin.renderer.RendererPluginManager
@@ -299,6 +300,9 @@ fun LaunchGameOperation(
                     return@LaunchedEffect
                 }
 
+                // ST4: the full plugin scan runs on IO; wait for it before
+                // freezing the renderer choice and its :game cache entry.
+                PluginLoader.awaitPluginsLoaded()
                 val currentRenderer = Renderers.setCurrentRenderer(version.getRenderer())
                 // FF-F2-3：主进程解析出当前渲染器后缓存其插件身份（包名 + versionCode），
                 // 供 :game 进程定向加载，避免每次启动扫描所有已安装应用

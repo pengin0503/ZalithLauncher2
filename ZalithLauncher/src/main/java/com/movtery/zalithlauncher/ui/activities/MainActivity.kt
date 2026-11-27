@@ -207,10 +207,11 @@ class MainActivity : BaseAppCompatActivity() {
         //处理外部导入
         val isImporting = handleImportIfNeeded(intent)
 
-        //加载渲染器
+        //加载渲染器（内置项保持同步，UI 可立即读取当前渲染器）
         Renderers.init()
-        //加载插件
-        PluginLoader.loadAllPlugins(this, false)
+        // ST4: the PackageManager scan touches every installed app; run it on IO
+        // and let the UI converge via Renderers/PluginLoader flows.
+        PluginLoader.scheduleReload(this, force = false)
         refreshData()
 
         //注册文件管理器事件监听
@@ -554,10 +555,9 @@ class MainActivity : BaseAppCompatActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleImportIfNeeded(intent)
-        // 重载渲染器
-        Renderers.init(true)
-        // 重载插件
-        PluginLoader.loadAllPlugins(this, true)
+        // ST4: queue the forced renderer reset + full scan behind any in-flight
+        // scan from onCreate, so onNewIntent cannot race with IO registration.
+        PluginLoader.scheduleReload(this, force = true, resetRenderers = true)
     }
 
     override fun onDestroy() {

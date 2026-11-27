@@ -37,6 +37,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,6 +51,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import com.movtery.zalithlauncher.BuildConfig
@@ -88,6 +90,9 @@ fun AboutInfoScreen(
     openLicense: (raw: Int) -> Unit,
     openLink: (url: String) -> Unit
 ) {
+    // ST4: plugins may still be loading on IO when this screen first composes.
+    val allPlugins by PluginLoader.allPluginsFlow.collectAsStateWithLifecycle()
+
     BaseScreen(
         Triple(key, mainScreenKey, false),
         Triple(NormalNavKey.Settings.AboutInfo, settingsScreenKey, false)
@@ -249,14 +254,14 @@ fun AboutInfoScreen(
             }
 
             //已加载插件板块
-            PluginLoader.allPlugins.takeIf { it.isNotEmpty() }?.let { allPlugins ->
+            allPlugins.takeIf { it.isNotEmpty() }?.let { plugins ->
                 animatedItem { ctx ->
                     ChunkLayout(
                         modifier = Modifier.animated(ctx),
                         title = stringResource(R.string.about_plugin_title)
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            allPlugins.forEach { apkPlugin ->
+                            plugins.forEach { apkPlugin ->
                                 PluginInfoItem(apkPlugin = apkPlugin)
                             }
                         }
