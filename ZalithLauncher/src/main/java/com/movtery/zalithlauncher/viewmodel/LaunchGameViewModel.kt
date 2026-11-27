@@ -103,6 +103,15 @@ class LaunchGameViewModel : ViewModel() {
     }
 
     /**
+     * ViewModel 被清理时 viewModelScope 会直接取消任务流，onCancel 是异步回调：
+     * 若不在这里同步回收 :game 服务，旧流程可能在下一轮启动已经预热后回收新流程的服务。
+     */
+    override fun onCleared() {
+        cancel()
+        super.onCleared()
+    }
+
+    /**
      * 尝试启动游戏
      */
     fun tryLaunch(

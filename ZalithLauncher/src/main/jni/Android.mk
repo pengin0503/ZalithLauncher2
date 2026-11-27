@@ -118,11 +118,12 @@ LOCAL_MODULE := driver_helper
 LOCAL_SRC_FILES := \
     driver_helper/driver_helper.c \
     driver_helper/nsbypass.c
-# -g dropped; -rdynamic kept as before.
+# -g and -rdynamic are kept for every build: the optimization flags below are
+# the only part that is lite-specific.
 # -fvisibility=hidden is intentionally NOT applied here: loadTurnipVulkan() is
 # a plain (non-JNIEXPORT) C symbol linked by pojavexec and vulkan_check from
 # this shared library, so hiding it would break their link.
-LOCAL_CFLAGS += -rdynamic $(LITE_OPT_CFLAGS)
+LOCAL_CFLAGS += -g -rdynamic $(LITE_OPT_CFLAGS)
 LOCAL_CPPFLAGS += $(LITE_OPT_CFLAGS)
 LOCAL_LDFLAGS += $(LITE_OPT_LDFLAGS)
 

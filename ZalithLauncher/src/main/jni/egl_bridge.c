@@ -82,7 +82,10 @@ void zalith_surface_generation_bump(void) {
 uint64_t zalith_surface_wait_for_change(uint64_t expected_generation, int timeout_ms) {
     struct timespec deadline;
     // PTHREAD_COND_INITIALIZER uses CLOCK_REALTIME, so the deadline must use it too.
-    clock_gettime(CLOCK_REALTIME, &deadline);
+    if (clock_gettime(CLOCK_REALTIME, &deadline) != 0) {
+        // No valid deadline: return immediately instead of waiting on garbage.
+        return atomic_load_explicit(&g_surfaceGeneration, memory_order_acquire);
+    }
     deadline.tv_sec += timeout_ms / 1000;
     deadline.tv_nsec += (long) (timeout_ms % 1000) * 1000000L;
     if (deadline.tv_nsec >= 1000000000L) {
@@ -94,8 +97,10 @@ uint64_t zalith_surface_wait_for_change(uint64_t expected_generation, int timeou
     pthread_mutex_lock(&g_surfaceGenerationLock);
     while ((generation = atomic_load_explicit(&g_surfaceGeneration, memory_order_acquire))
            == expected_generation) {
+        // Any non-zero return (timeout or error) must end the wait. Retrying on
+        // EINVAL/other errors with the same expired deadline would spin forever.
         if (pthread_cond_timedwait(&g_surfaceGenerationCond, &g_surfaceGenerationLock,
-                                   &deadline) == ETIMEDOUT) {
+                                   &deadline) != 0) {
             generation = atomic_load_explicit(&g_surfaceGeneration, memory_order_acquire);
             break;
         }

@@ -25,6 +25,10 @@ import com.movtery.zalithlauncher.path.PathManager
 import com.movtery.zalithlauncher.utils.GSON
 import com.movtery.zalithlauncher.utils.logging.Logger
 import java.io.File
+import java.io.IOException
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.util.Base64
 
 private const val TAG = "ModMetadataCache"
@@ -114,26 +118,48 @@ internal object ModMetadataCache {
 
         runCatching {
             val file = cacheFile
-            file.parentFile?.mkdirs()
+            val parent = file.parentFile ?: throw IOException("Cache file has no parent")
+            Files.createDirectories(parent.toPath())
 
-            val tmp = File(file.parentFile, "${file.name}.tmp")
-            tmp.writeText(
-                GSON.toJson(
-                    CacheFile(
-                        version = CACHE_VERSION,
-                        appVersion = BuildConfig.VERSION_CODE,
-                        entries = entries
+            // Unique temp name: multiple mod scans / processes can save at once.
+            val tmp = Files.createTempFile(parent.toPath(), "${file.name}.", ".tmp").toFile()
+            try {
+                tmp.writeText(
+                    GSON.toJson(
+                        CacheFile(
+                            version = CACHE_VERSION,
+                            appVersion = BuildConfig.VERSION_CODE,
+                            entries = entries
+                        )
                     )
                 )
-            )
-            if (!tmp.renameTo(file)) {
-                file.delete()
-                if (!tmp.renameTo(file)) {
-                    tmp.delete()
-                    throw IllegalStateException("Failed to replace the mod metadata cache file")
+                try {
+                    Files.move(
+                        tmp.toPath(),
+                        file.toPath(),
+                        StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING
+                    )
+                } catch (_: AtomicMoveNotSupportedException) {
+                    if (!tmp.renameTo(file)) {
+                        file.delete()
+                        if (!tmp.renameTo(file)) {
+                            throw IllegalStateException("Failed to replace the mod metadata cache file")
+                        }
+                    }
+                } catch (_: UnsupportedOperationException) {
+                    // 与 VerifyStampStore 一致：某些文件系统直接拒绝 ATOMIC_MOVE
+                    if (!tmp.renameTo(file)) {
+                        file.delete()
+                        if (!tmp.renameTo(file)) {
+                            throw IllegalStateException("Failed to replace the mod metadata cache file")
+                        }
+                    }
                 }
+                dirty = false
+            } finally {
+                tmp.delete()
             }
-            dirty = false
         }.onFailure { e ->
             Logger.warning(TAG, "Failed to save the mod metadata cache", e)
         }

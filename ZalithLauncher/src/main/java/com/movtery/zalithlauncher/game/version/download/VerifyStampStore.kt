@@ -121,19 +121,26 @@ object VerifyStampStore {
             if (!parent.isDirectory && !parent.mkdirs()) {
                 throw IOException("Failed to create stamp directory: ${parent.absolutePath}")
             }
-            val tempFile = File(parent, "${file.name}.tmp")
-            tempFile.writeText(stampJson.encodeToString(VerifyStamp.serializer(), stamp))
+            // Unique temp name: :game and the main process can both refresh
+            // component stamps, and two writers must not truncate each other's
+            // partially written JSON.
+            val tempFile = Files.createTempFile(parent.toPath(), "${file.name}.", ".tmp").toFile()
             try {
-                Files.move(
-                    tempFile.toPath(),
-                    file.toPath(),
-                    StandardCopyOption.REPLACE_EXISTING,
-                    StandardCopyOption.ATOMIC_MOVE
-                )
-            } catch (_: AtomicMoveNotSupportedException) {
-                Files.move(tempFile.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
-            } catch (_: UnsupportedOperationException) {
-                Files.move(tempFile.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                tempFile.writeText(stampJson.encodeToString(VerifyStamp.serializer(), stamp))
+                try {
+                    Files.move(
+                        tempFile.toPath(),
+                        file.toPath(),
+                        StandardCopyOption.REPLACE_EXISTING,
+                        StandardCopyOption.ATOMIC_MOVE
+                    )
+                } catch (_: AtomicMoveNotSupportedException) {
+                    Files.move(tempFile.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                } catch (_: UnsupportedOperationException) {
+                    Files.move(tempFile.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                }
+            } finally {
+                tempFile.delete()
             }
         }.onFailure { e ->
             Logger.warning(TAG, "Failed to write verify stamp: ${file.absolutePath}", e)

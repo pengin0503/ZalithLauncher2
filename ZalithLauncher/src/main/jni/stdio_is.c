@@ -61,7 +61,8 @@ static void logSyncAfterWrite(size_t written) {
             (long long) (now.tv_sec - lastSyncTime.tv_sec) * 1000000000LL +
             (long long) (now.tv_nsec - lastSyncTime.tv_nsec);
 
-    if (latestlog_fd != -1 &&
+    // 0 is the failed-open sentinel set by LoggerBridge_start(), not a log fd.
+    if (latestlog_fd > 0 &&
         (unsyncedBytes >= LOG_SYNC_BYTES_THRESHOLD || elapsedNs >= LOG_SYNC_INTERVAL_NS)) {
         fdatasync(latestlog_fd);
         unsyncedBytes = 0;
@@ -74,7 +75,7 @@ static void logSyncAfterWrite(size_t written) {
 // re-init, logger start failure, JVM exit).
 static void logSyncNow(void) {
     pthread_mutex_lock(&logSyncLock);
-    if (latestlog_fd != -1 && unsyncedBytes > 0) {
+    if (latestlog_fd > 0 && unsyncedBytes > 0) {
         fdatasync(latestlog_fd);
         unsyncedBytes = 0;
     }
@@ -105,8 +106,26 @@ static bool recordBuffer(char* buf, ssize_t len) {
     if (strstr(buf, "Session ID is")) return false;
     if (latestlog_fd != -1)
     {
-        ssize_t written = write(latestlog_fd, buf, len);
-        if (written > 0) logSyncAfterWrite((size_t) written);
+        // write() to a regular file may be short or interrupted. Retry the tail
+        // so the log line is not silently truncated, and only count bytes that
+        // actually reached the file in the batching bookkeeping.
+        const char *cursor = buf;
+        size_t remaining = (size_t) len;
+        size_t total_written = 0;
+        while (remaining > 0)
+        {
+            ssize_t written = write(latestlog_fd, cursor, remaining);
+            if (written > 0)
+            {
+                total_written += (size_t) written;
+                cursor += written;
+                remaining -= (size_t) written;
+                continue;
+            }
+            if (written < 0 && errno == EINTR) continue;
+            break; // 0 or a real error: stop instead of spinning forever
+        }
+        if (total_written > 0) logSyncAfterWrite(total_written);
     }
     return true;
 }

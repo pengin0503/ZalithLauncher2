@@ -53,11 +53,15 @@ jobs:
           set -euo pipefail
           apk=$(ls ZalithLauncher/build/outputs/apk/debug/*.apk | head -n1)
           echo "APK: $apk ($(du -h "$apk" | cut -f1))"
+          # Materialize the listing first: grep -q closes the pipe early, and with
+          # pipefail a slow unzip can die of SIGPIPE and invert the assertion.
+          listing="$RUNNER_TEMP/lite-apk-listing.txt"
+          unzip -l "$apk" > "$listing"
           for bad in 'assets/runtimes/jre-8/' 'assets/runtimes/jre-17/' 'lib/arm64-v8a/libOSMesa_2300d.so'; do
-            if unzip -l "$apk" | grep -Fq "$bad"; then echo "unexpected: $bad"; exit 1; fi
+            if grep -Fq "$bad" "$listing"; then echo "unexpected: $bad"; exit 1; fi
           done
           for good in 'assets/runtimes/jre-21/' 'assets/runtimes/jre-25/' 'lib/arm64-v8a/libmobileglues.so' 'lib/arm64-v8a/libOSMesa_2121.so' 'lib/arm64-v8a/libOSMesa_8.so'; do
-            if ! unzip -l "$apk" | grep -Fq "$good"; then echo "missing: $good"; exit 1; fi
+            if ! grep -Fq "$good" "$listing"; then echo "missing: $good"; exit 1; fi
           done
 
       - name: Upload lite arm64 debug APK
