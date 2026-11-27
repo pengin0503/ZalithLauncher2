@@ -233,7 +233,7 @@ object Logger : CoroutineScope {
      * Lazy DEBUG message: the lambda (and any string interpolation inside it)
      * is not evaluated at all when DEBUG logging is disabled.
      */
-    fun debug(tag: String, lazyMsg: () -> String, t: Throwable? = null) {
+    fun debug(tag: String, t: Throwable? = null, lazyMsg: () -> String) {
         if (verboseLoggingEnabled) log(Level.DEBUG, tag, lazyMsg(), t)
     }
 
