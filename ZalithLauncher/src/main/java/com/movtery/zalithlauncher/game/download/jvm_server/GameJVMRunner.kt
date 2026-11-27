@@ -244,6 +244,13 @@ suspend fun startJvmServiceAndWaitExit(
             throw IOException("Timed out waiting for the JVM process to exit.")
         }
     } finally {
+        // 取消或启动失败时 JvmService 仍可能留在 :jvm 中执行（CDS dump 尤其如此），
+        // 必须主动停掉服务：onDestroy 会结束该进程，否则后续 JVM 等待会被它阻塞。
+        if (!doneSignal.isCompleted) {
+            runCatching {
+                GlobalContext.stopService(Intent(GlobalContext, JvmService::class.java))
+            }
+        }
         // 无论成败、取消还是超时都收掉接收端
         // 单例状态跨轮残留会毒化下一次运行
         JVMSocketServer.stop()
