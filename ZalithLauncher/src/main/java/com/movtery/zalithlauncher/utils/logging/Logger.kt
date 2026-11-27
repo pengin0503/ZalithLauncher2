@@ -57,6 +57,11 @@ object Logger : CoroutineScope {
     private val isInitialized = AtomicBoolean(false)
     private val channel = Channel<LogMessage>(Channel.UNLIMITED)
 
+    // SimpleDateFormat is not thread-safe, but formatMessage() is only called
+    // by the single channel consumer in processEvents(), so one shared instance
+    // is safe and avoids allocating a formatter for every log line.
+    private val timeFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
+
     private val logRetentionDays: Int
         get() = LauncherSettings.launcherLogRetentionDays.getValue()
 
@@ -182,7 +187,7 @@ object Logger : CoroutineScope {
     }
 
     private fun formatMessage(message: LogMessage): String {
-        val time = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(message.time)
+        val time = timeFormat.format(Date(message.time))
         return buildString {
             append("[$time] [")
             append(message.tag)

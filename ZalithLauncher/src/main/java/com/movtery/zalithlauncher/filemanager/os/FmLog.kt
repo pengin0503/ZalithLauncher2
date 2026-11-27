@@ -46,6 +46,11 @@ object FmLog {
     private val isInitialized = AtomicBoolean(false)
     private val channel = Channel<FmLogMessage>(Channel.UNLIMITED)
 
+    // formatMessage() is only called by the single consumer launched in init()
+    // (a re-init cancels the previous consumer first), so sharing this
+    // non-thread-safe formatter is safe and avoids one allocation per line.
+    private val timeFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
+
     private var consumerJob: Job? = null
 
     @Volatile
@@ -131,7 +136,7 @@ object FmLog {
     }
 
     private fun formatMessage(message: FmLogMessage): String {
-        val time = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date(message.time))
+        val time = timeFormat.format(Date(message.time))
         return buildString {
             append("[$time] [")
             append(message.tag)
