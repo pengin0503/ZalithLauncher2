@@ -105,8 +105,26 @@ static bool recordBuffer(char* buf, ssize_t len) {
     if (strstr(buf, "Session ID is")) return false;
     if (latestlog_fd != -1)
     {
-        ssize_t written = write(latestlog_fd, buf, len);
-        if (written > 0) logSyncAfterWrite((size_t) written);
+        // write() to a regular file may be short or interrupted. Retry the tail
+        // so the log line is not silently truncated, and only count bytes that
+        // actually reached the file in the batching bookkeeping.
+        const char *cursor = buf;
+        size_t remaining = (size_t) len;
+        size_t total_written = 0;
+        while (remaining > 0)
+        {
+            ssize_t written = write(latestlog_fd, cursor, remaining);
+            if (written > 0)
+            {
+                total_written += (size_t) written;
+                cursor += written;
+                remaining -= (size_t) written;
+                continue;
+            }
+            if (written < 0 && errno == EINTR) continue;
+            break; // 0 or a real error: stop instead of spinning forever
+        }
+        if (total_written > 0) logSyncAfterWrite(total_written);
     }
     return true;
 }
