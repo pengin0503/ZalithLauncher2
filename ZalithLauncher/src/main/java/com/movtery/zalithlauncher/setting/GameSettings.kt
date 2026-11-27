@@ -32,6 +32,11 @@ object GameSettings : SettingsRegistry() {
     val skipGameIntegrityCheck = boolSetting("skipGameIntegrityCheck", false)
 
     /**
+     * 新建带模组加载器的版本后，自动下载客户端性能优化模组（尽力而为）
+     */
+    val autoInstallPerfPack = boolSetting("autoInstallPerfPack", true)
+
+    /**
      * 版本自定义信息
      */
     val versionCustomInfo = stringSetting("versionCustomInfo", "${BuildKeys.LAUNCHER_IDENTIFIER}[zl_version]")

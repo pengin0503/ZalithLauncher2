@@ -1900,6 +1900,10 @@
     <string name="settings_game_auto_pick_java_runtime_title">Auto-Select Java</string>
     <!-- Summary of the auto-select Java switch in the Game settings tab -->
     <string name="settings_game_auto_pick_java_runtime_summary">When Java is required, the launcher will automatically select the appropriate environment. If unable to determine, it will use the default Java environment</string>
+    <!-- Placeholder used in the performance pack toast when nothing was installed -->
+    <string name="perf_pack_none">none</string>
+    <!-- Brief post-creation summary; %1$s is the installed mod list, %2$d skipped count, %3$d failed count -->
+    <string name="perf_pack_toast_summary">Performance pack: installed %1$s; skipped %2$d, failed %3$d</string>
     <!-- Settings item title in the Game tab and version settings to choose the Java runtime -->
     <string name="settings_game_java_runtime_title">Java Runtime</string>
     <!-- Summary of the Java runtime item in the Game settings tab -->
