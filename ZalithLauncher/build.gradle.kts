@@ -253,6 +253,11 @@ android {
             externalNativeBuild {
                 ndkBuild {
                     arguments += "LITE_BUILD=1"
+                    // Debuggable builds default to APP_OPTIM=debug (-O0/-g, no
+                    // NDEBUG). A command-line variable overrides Application.mk;
+                    // native sources already carry the lite -O3/mcpu flags, so
+                    // this only drops debug info and native assert() overhead.
+                    arguments += "APP_OPTIM=release"
                 }
             }
         }
