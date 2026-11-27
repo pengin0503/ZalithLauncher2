@@ -129,6 +129,58 @@ object ServerCardManager {
     /** 全部服务器卡片及其当前状态 */
     val cards: StateFlow<List<ServerCardState>> = _cards.asStateFlow()
 
+    /**
+     * 每张卡片各自的独立状态流：ping 完成只通知对应卡片，
+     * 避免每次刷新都唤醒全部卡片去做 O(N) 的列表扫描与重组。
+     */
+    private val cardFlows = mutableMapOf<String, MutableStateFlow<ServerCardState?>>()
+
+    /** 取指定卡片的独立状态流；卡片被移除后流会发射 null */
+    fun cardFlow(cardId: String): StateFlow<ServerCardState?> = synchronized(this) {
+        cardFlows.getOrPut(cardId) {
+            MutableStateFlow(_cards.value.firstOrNull { it.record.cardId == cardId })
+        }
+    }
+
+    /** 统一更新列表并把变化同步到各卡片流，只有真正变化的卡片才发射 */
+    private fun updateCards(transform: (List<ServerCardState>) -> List<ServerCardState>) {
+        var updated: List<ServerCardState> = emptyList()
+        _cards.update { states ->
+            transform(states).also { updated = it }
+        }
+        syncCardFlows(updated)
+    }
+
+    private fun setCards(states: List<ServerCardState>) {
+        _cards.value = states
+        syncCardFlows(states)
+    }
+
+    /** 已删除的卡片先置 null 再移除流，保证仍在收集的旧可组合项能看到移除 */
+    private fun syncCardFlows(states: List<ServerCardState>) {
+        synchronized(this) {
+            val alive = HashSet<String>(states.size)
+            states.forEach { state ->
+                val id = state.record.cardId
+                alive += id
+                val flow = cardFlows[id]
+                if (flow == null) {
+                    cardFlows[id] = MutableStateFlow(state)
+                } else {
+                    flow.value = state
+                }
+            }
+            val iterator = cardFlows.entries.iterator()
+            while (iterator.hasNext()) {
+                val entry = iterator.next()
+                if (entry.key !in alive) {
+                    entry.value.value = null
+                    iterator.remove()
+                }
+            }
+        }
+    }
+
     /** 正在 ping 的卡片 id 集合 */
     private val _inFlight = MutableStateFlow<Set<String>>(emptySet())
 
@@ -145,9 +197,9 @@ object ServerCardManager {
     private var visibleIds: Set<String> = emptySet()
 
     init {
-        _cards.value = loadRecords().map { record ->
+        setCards(loadRecords().map { record ->
             ServerCardState(record, ServerCardPingStatus.Loading)
-        }
+        })
         //首次解析绑定版本
         recheckVersions()
         //版本列表刷新后同步绑定版本的可用性
@@ -177,7 +229,7 @@ object ServerCardManager {
                 name = name.stripColorCodes().ifBlank { ip },
                 icon = icon
             )
-            _cards.update { states ->
+            updateCards { states ->
                 states + ServerCardState(record, ServerCardPingStatus.Loading)
             }
             saveRecords()
@@ -193,7 +245,7 @@ object ServerCardManager {
             lastPingAt.remove(cardId)
             _inFlight.update { it - cardId }
             visibleIds -= cardId
-            _cards.update { states ->
+            updateCards { states ->
                 states.filterNot { it.record.cardId == cardId }
             }
             saveRecords()
@@ -313,7 +365,7 @@ object ServerCardManager {
                 null -> {
                     //静默刷新失败保留旧数据；仅在从未成功时落入 Failed
                     if (current.ping !is ServerCardPingStatus.Loaded) {
-                        _cards.update { states ->
+                        updateCards { states ->
                             states.map {
                                 if (it.record.cardId == cardId) {
                                     it.copy(ping = ServerCardPingStatus.Failed)
@@ -328,7 +380,7 @@ object ServerCardManager {
                     val newIcon = result.status.favicon?.icon
                     val changed = !newIcon.contentEquals(current.record.icon)
                     val newRecord = if (changed) current.record.copy(icon = newIcon) else current.record
-                    _cards.update { states ->
+                    updateCards { states ->
                         states.map {
                             if (it.record.cardId == cardId) {
                                 it.copy(record = newRecord, ping = ServerCardPingStatus.Loaded(result))
@@ -373,7 +425,7 @@ object ServerCardManager {
             }
             status != state.versionStatus -> {
                 //状态无变化时不发射，避免触发主页网格的无效重组
-                _cards.update { states ->
+                updateCards { states ->
                     states.map {
                         if (it.record.cardId == cardId) it.copy(versionStatus = status) else it
                     }
@@ -401,7 +453,7 @@ object ServerCardManager {
     /** 更新指定卡片的状态，未找到卡片时返回 null */
     private fun updateState(cardId: String, transform: (ServerCardState) -> ServerCardState): ServerCardState? {
         var updated: ServerCardState? = null
-        _cards.update { states ->
+        updateCards { states ->
             states.map { state ->
                 if (state.record.cardId == cardId) {
                     transform(state).also { updated = it }

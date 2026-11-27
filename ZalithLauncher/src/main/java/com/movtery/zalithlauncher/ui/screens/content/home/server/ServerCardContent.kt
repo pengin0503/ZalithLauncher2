@@ -136,10 +136,8 @@ private val DetailTopGap = 4.dp
  */
 @Composable
 fun CardState.ServerCardContent(cardId: String) {
-    val states by ServerCardManager.cards.collectAsStateWithLifecycle()
-    val card = remember(states, cardId) {
-        states.firstOrNull { it.record.cardId == cardId }
-    }
+    //只收集本卡片的状态流：其它卡片 ping 完成不会触发本卡片重组或列表扫描
+    val card by ServerCardManager.cardFlow(cardId).collectAsStateWithLifecycle()
 
     Box(
         modifier = Modifier
@@ -179,10 +177,8 @@ fun ServerCardSettingsHost(
     cardId: String,
     onDismiss: () -> Unit
 ) {
-    val states by ServerCardManager.cards.collectAsStateWithLifecycle()
-    val record = remember(states, cardId) {
-        states.firstOrNull { it.record.cardId == cardId }?.record
-    } ?: run {
+    val card by ServerCardManager.cardFlow(cardId).collectAsStateWithLifecycle()
+    val record = card?.record ?: run {
         onDismiss()
         return
     }

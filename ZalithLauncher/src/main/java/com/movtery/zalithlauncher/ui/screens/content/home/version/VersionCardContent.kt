@@ -39,7 +39,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -86,10 +85,8 @@ private val DetailItemGap = 2.dp
  */
 @Composable
 fun CardState.VersionCardContent(cardId: String) {
-    val states by VersionCardManager.cards.collectAsStateWithLifecycle()
-    val card = remember(states, cardId) {
-        states.firstOrNull { it.record.cardId == cardId }
-    }
+    //只收集本卡片的状态流：其它卡片状态变化不会触发本卡片重组或列表扫描
+    val card by VersionCardManager.cardFlow(cardId).collectAsStateWithLifecycle()
     val version = (card?.status as? VersionCardStatus.Available)?.version
     val onOpenSettings = LocalHomeCardVersionSettings.current
 
