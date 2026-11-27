@@ -33,6 +33,9 @@ import com.movtery.zalithlauncher.utils.network.httpGetJson
 import com.movtery.zalithlauncher.utils.network.withRetry
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 
 object NeoForgeVersions {
@@ -82,22 +85,32 @@ object NeoForgeVersions {
 
     private suspend fun fetchOfficialVersions() = withContext(Dispatchers.IO) {
         processVersionList(SourceType.OFFICIAL) {
-            val neoforge = withRetry(TAG, maxRetries = 2) {
-                GLOBAL_JSON.decodeFromString<NeoForgedMaven>(
-                    fetchStringFromUrls(
-                        "https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge".mapBMCLMirrorUrls()
-                    )
-                )
-            }
-            val legacyForge = withRetry(TAG, maxRetries = 2) {
-                GLOBAL_JSON.decodeFromString<NeoForgedMaven>(
-                    fetchStringFromUrls(
-                        "https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/forge".mapBMCLMirrorUrls()
-                    )
-                )
-            }.copy(isLegacy = true)
+            // N4: the neoforge and legacy-forge probes are independent. Overlap their
+            // latency; awaitAll still fails the whole source if either request fails,
+            // and each request keeps its own retry budget (no compounding retries).
+            coroutineScope {
+                val neoforge = async(Dispatchers.IO) {
+                    withRetry(TAG, maxRetries = 2) {
+                        GLOBAL_JSON.decodeFromString<NeoForgedMaven>(
+                            fetchStringFromUrls(
+                                "https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge".mapBMCLMirrorUrls()
+                            )
+                        )
+                    }
+                }
+                val legacyForge = async(Dispatchers.IO) {
+                    withRetry(TAG, maxRetries = 2) {
+                        GLOBAL_JSON.decodeFromString<NeoForgedMaven>(
+                            fetchStringFromUrls(
+                                "https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/forge".mapBMCLMirrorUrls()
+                            )
+                        )
+                    }.copy(isLegacy = true)
+                }
 
-            neoforge + legacyForge
+                val results = awaitAll(neoforge, legacyForge)
+                results[0] + results[1]
+            }
         }
     }
 
@@ -108,14 +121,22 @@ object NeoForgeVersions {
         type = SourceType.BMCLAPI
     ) {
         processVersionList(SourceType.BMCLAPI) {
-            val neoforge = withRetry(TAG, maxRetries = 2) {
-                httpGetJson<BMCLAPIMaven>(url = "https://bmclapi2.bangbang93.com/neoforge/meta/api/maven/details/releases/net/neoforged/neoforge")
-            }
-            val legacyForge = withRetry(TAG, maxRetries = 2) {
-                httpGetJson<BMCLAPIMaven>(url = "https://bmclapi2.bangbang93.com/neoforge/meta/api/maven/details/releases/net/neoforged/forge")
-            }.copy(isLegacy = true)
+            // Same two independent probes on the mirror source, overlapped for latency.
+            coroutineScope {
+                val neoforge = async(Dispatchers.IO) {
+                    withRetry(TAG, maxRetries = 2) {
+                        httpGetJson<BMCLAPIMaven>(url = "https://bmclapi2.bangbang93.com/neoforge/meta/api/maven/details/releases/net/neoforged/neoforge")
+                    }
+                }
+                val legacyForge = async(Dispatchers.IO) {
+                    withRetry(TAG, maxRetries = 2) {
+                        httpGetJson<BMCLAPIMaven>(url = "https://bmclapi2.bangbang93.com/neoforge/meta/api/maven/details/releases/net/neoforged/forge")
+                    }.copy(isLegacy = true)
+                }
 
-            neoforge + legacyForge
+                val results = awaitAll(neoforge, legacyForge)
+                results[0] + results[1]
+            }
         }
     }
 
