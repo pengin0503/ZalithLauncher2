@@ -221,12 +221,17 @@ android {
         }
     }
 
+    // S3: resolve the release signing credentials once so the Lite release build
+    // can fall back to the checked-in debug keystore when a fork has none set.
+    val releaseStorePassword = getKeyFromLocal("STORE_PASSWORD", ".store_password.txt")
+    val releaseKeyPassword = getKeyFromLocal("KEY_PASSWORD", ".key_password.txt")
+
     signingConfigs {
         create("releaseBuild") {
             storeFile = file("zalith_launcher.jks")
-            storePassword = getKeyFromLocal("STORE_PASSWORD", ".store_password.txt")
+            storePassword = releaseStorePassword
             keyAlias = "movtery_zalith"
-            keyPassword = getKeyFromLocal("KEY_PASSWORD", ".key_password.txt")
+            keyPassword = releaseKeyPassword
         }
         create("debugBuild") {
             storeFile = file("zalith_launcher_debug.jks")
@@ -271,7 +276,16 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfig = signingConfigs.getByName("releaseBuild")
+            // S3: a Lite release built on a personal fork usually has no release
+            // keystore secrets; sign it with the debug keystore so it stays
+            // installable. Non-lite releases keep the official signing config.
+            signingConfig = if (liteBuild &&
+                (releaseStorePassword.isBlank() || releaseKeyPassword.isBlank())
+            ) {
+                signingConfigs.getByName("debugBuild")
+            } else {
+                signingConfigs.getByName("releaseBuild")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
