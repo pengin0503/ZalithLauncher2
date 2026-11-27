@@ -66,6 +66,18 @@ class PathManager {
         lateinit var FILE_LAUNCHER_BACKGROUND: File
         lateinit var FILE_SPONSORS_CACHE: File
 
+        /**
+         * ST1: directory creation and the one-off legacy cleanup are process-wide
+         * side effects. Path fields are still recomputed on every refresh (they can
+         * change with the configuration/activity), but the repeated `exists()` /
+         * `mkdirs()` burst and legacy file probe are paid only once per process.
+         * If a directory is removed later, the regular `ensureDirectory()` /
+         * `ensureParentDirectory()` calls at each write site recreate it lazily.
+         */
+        @Volatile
+        private var pathsPrepared = false
+        private val prepareLock = Any()
+
         fun refreshPaths(context: Context) {
             DIR_FILES_PRIVATE = context.filesDir
             DIR_FILES_EXTERNAL = context.getExternalFilesDir(null) ?: run {
@@ -111,8 +123,15 @@ class PathManager {
             FILE_LAUNCHER_BACKGROUND = File(DIR_BACKGROUND, "background01.file")
             FILE_SPONSORS_CACHE = File(DIR_CACHE, "monthly_sponsors.json")
 
-            createDirs()
-            handleLegacy()
+            if (!pathsPrepared) {
+                synchronized(prepareLock) {
+                    if (!pathsPrepared) {
+                        createDirs()
+                        handleLegacy()
+                        pathsPrepared = true
+                    }
+                }
+            }
         }
 
         private fun createDirs() {
