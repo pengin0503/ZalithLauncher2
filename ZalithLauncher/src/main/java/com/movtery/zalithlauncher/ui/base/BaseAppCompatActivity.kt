@@ -28,6 +28,8 @@ import com.movtery.zalithlauncher.game.path.GamePathManager
 import com.movtery.zalithlauncher.setting.loadAllSettings
 import com.movtery.zalithlauncher.utils.checkStoragePermissionsForInit
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
 open class BaseAppCompatActivity : FullScreenAppCompatActivity() {
@@ -42,7 +44,14 @@ open class BaseAppCompatActivity : FullScreenAppCompatActivity() {
     @CallSuper
     override fun onResume() {
         super.onResume()
-        loadAllSettings(this, true)
+        // ST2: ~117 setting reads (each a JNI call) used to run on the main
+        // thread before this Activity's first frame. Reload on IO; StateFlow
+        // writes are thread-safe, so collectors observe updated values on the
+        // next frame. Use the application context: the coroutine outlives the
+        // resume call but not the Activity's lifecycle.
+        lifecycleScope.launch(Dispatchers.IO) {
+            loadAllSettings(applicationContext, true)
+        }
         checkStoragePermissions()
         refreshTaskDescription()
     }

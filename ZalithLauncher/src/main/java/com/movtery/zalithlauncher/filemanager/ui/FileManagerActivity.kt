@@ -44,6 +44,8 @@ import com.movtery.zalithlauncher.filemanager.viewmodel.FileManagerViewModel
 import com.movtery.zalithlauncher.setting.loadAllSettings
 import com.movtery.zalithlauncher.ui.theme.ZalithLauncherTheme
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import java.nio.file.Paths
 
 /**
@@ -138,7 +140,10 @@ class FileManagerActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        loadAllSettings(this, true)
+        // ST2: keep the ~117 setting reads off the first-frame critical path.
+        lifecycleScope.launch(Dispatchers.IO) {
+            loadAllSettings(applicationContext, true)
+        }
         applySystemUiByOrientation()
         @Suppress("DEPRECATION")
         setTaskDescription(

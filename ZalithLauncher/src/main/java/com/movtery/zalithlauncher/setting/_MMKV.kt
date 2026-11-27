@@ -23,5 +23,14 @@ import com.tencent.mmkv.MMKV
 
 /**
  * 启动器全局 MMKV，管理所有设置项
+ *
+ * ST2: `mmkvWithID()` is a JNI lookup. Settings are read ~117 times on every
+ * resume, so keep one process-level handle instead of looking it up per value.
+ * MULTI_PROCESS_MODE keeps reads backed by the shared mmap, so changes made by
+ * another process are still visible without re-opening the instance.
  */
-fun launcherMMKV(): MMKV = MMKV.mmkvWithID(BuildKeys.LAUNCHER_IDENTIFIER, MMKV.MULTI_PROCESS_MODE)
+private val launcherMmkv: MMKV by lazy {
+    MMKV.mmkvWithID(BuildKeys.LAUNCHER_IDENTIFIER, MMKV.MULTI_PROCESS_MODE)
+}
+
+fun launcherMMKV(): MMKV = launcherMmkv
