@@ -34,7 +34,8 @@ import java.util.Base64
 private const val TAG = "ModMetadataCache"
 
 /** 缓存格式版本，结构变化时递增，旧缓存会被直接丢弃并重建 */
-private const val CACHE_VERSION = 1
+// IO2: v2 adds the persistent sha1/murmur2/filtered-length fingerprint map.
+private const val CACHE_VERSION = 2
 
 /**
  * 模组元数据的持久缓存
@@ -52,6 +53,13 @@ internal object ModMetadataCache {
     private var dirty = false
     private val entries: MutableMap<String, CachedModMetadata> = mutableMapOf()
 
+    /**
+     * IO2: fingerprints are stored separately from parsed metadata so that a
+     * hash-only entry can never be mistaken for complete mod metadata by
+     * AllModReader. Both maps share this one file and validity check.
+     */
+    private val fingerprintEntries: MutableMap<String, CachedModFingerprints> = mutableMapOf()
+
     @Synchronized
     private fun ensureLoaded() {
         if (loaded) return
@@ -64,11 +72,13 @@ internal object ModMetadataCache {
             val parsed = GSON.fromJson(file.readText(), CacheFile::class.java) ?: CacheFile()
             if (parsed.version == CACHE_VERSION && parsed.appVersion == BuildConfig.VERSION_CODE) {
                 parsed.entries?.let { entries.putAll(it) }
+                parsed.fingerprints?.let { fingerprintEntries.putAll(it) }
             }
         }.onFailure { e ->
             //缓存文件损坏：忽略并重建，不缓存损坏结果
             Logger.warning(TAG, "Failed to read the mod metadata cache, rebuilding", e)
             entries.clear()
+            fingerprintEntries.clear()
             file.delete()
         }
     }
@@ -106,7 +116,49 @@ internal object ModMetadataCache {
         val removed = entries.keys.removeAll { path ->
             path.startsWith(prefix) && path !in existing
         }
-        if (removed) dirty = true
+        val fingerprintsRemoved = fingerprintEntries.keys.removeAll { path ->
+            path.startsWith(prefix) && path !in existing
+        }
+        if (removed || fingerprintsRemoved) dirty = true
+    }
+
+    /**
+     * IO2: return persisted fingerprints only when size+mtime still match, the
+     * same validity rule used by the metadata cache.
+     */
+    @Synchronized
+    fun getFingerprints(file: File): CachedModFingerprints? {
+        ensureLoaded()
+        return fingerprintEntries[file.absolutePath]?.takeIf { it.matches(file) }
+    }
+
+    /** Store a complete fingerprint set (SHA-1 + MurmurHash2 + filtered length). */
+    @Synchronized
+    fun putFingerprints(file: File, sha1: String, murmur2: Long, filteredLength: Int) {
+        ensureLoaded()
+        fingerprintEntries[file.absolutePath] = CachedModFingerprints(
+            size = file.length(),
+            lastModified = file.lastModified(),
+            sha1 = sha1,
+            murmur2 = murmur2,
+            filteredLength = filteredLength
+        )
+        dirty = true
+    }
+
+    /** Store only SHA-1; MurmurHash2 can be filled in later by a fingerprint scan. */
+    @Synchronized
+    fun putSha1(file: File, sha1: String) {
+        ensureLoaded()
+        val size = file.length()
+        val lastModified = file.lastModified()
+        val previous = fingerprintEntries[file.absolutePath]
+        fingerprintEntries[file.absolutePath] = if (previous?.matches(file) == true) {
+            previous.copy(size = size, lastModified = lastModified, sha1 = sha1)
+        } else {
+            CachedModFingerprints(size = size, lastModified = lastModified, sha1 = sha1)
+        }
+        dirty = true
     }
 
     /**
@@ -129,7 +181,8 @@ internal object ModMetadataCache {
                         CacheFile(
                             version = CACHE_VERSION,
                             appVersion = BuildConfig.VERSION_CODE,
-                            entries = entries
+                            entries = entries,
+                            fingerprints = fingerprintEntries
                         )
                     )
                 )
@@ -170,8 +223,28 @@ internal object ModMetadataCache {
     private data class CacheFile(
         val version: Int = 0,
         val appVersion: Int = 0,
-        val entries: Map<String, CachedModMetadata>? = null
+        val entries: Map<String, CachedModMetadata>? = null,
+        val fingerprints: Map<String, CachedModFingerprints>? = null
     )
+}
+
+/**
+ * IO2: persisted per-file platform fingerprints.
+ * [filteredLength] is the whitespace-filtered byte count required by
+ * MurmurHash2; bump [CACHE_VERSION] if its algorithm ever changes.
+ */
+@Keep
+internal data class CachedModFingerprints(
+    val size: Long = 0L,
+    val lastModified: Long = 0L,
+    val sha1: String? = null,
+    val murmur2: Long? = null,
+    val filteredLength: Int = 0
+) {
+    fun matches(file: File): Boolean =
+        size == file.length() && lastModified == file.lastModified()
+
+    val isComplete: Boolean get() = sha1 != null && murmur2 != null
 }
 
 /**

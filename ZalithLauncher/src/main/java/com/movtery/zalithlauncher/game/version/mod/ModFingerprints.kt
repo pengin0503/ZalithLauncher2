@@ -80,6 +80,13 @@ private object ModFingerprintMemoryCache {
 suspend fun computeModFingerprints(file: File): ModFingerprints = withContext(Dispatchers.IO) {
     ModFingerprintMemoryCache.get(file)?.let { return@withContext it }
 
+    // IO2: a warm mods-manager/download open should not re-read every JAR.
+    ModMetadataCache.getFingerprints(file)?.takeIf { it.isComplete }?.let { cached ->
+        val fingerprints = ModFingerprints(cached.sha1!!, cached.murmur2!!)
+        ModFingerprintMemoryCache.put(file, fingerprints)
+        return@withContext fingerprints
+    }
+
     val context = currentCoroutineContext()
     val digest = MessageDigest.getInstance("SHA-1")
     var filteredLength = 0
@@ -104,6 +111,7 @@ suspend fun computeModFingerprints(file: File): ModFingerprints = withContext(Di
     )
 
     ModFingerprints(sha1 = sha1, murmur2 = murmur2).also {
+        ModMetadataCache.putFingerprints(file, sha1, murmur2, filteredLength)
         ModFingerprintMemoryCache.put(file, it)
     }
 }

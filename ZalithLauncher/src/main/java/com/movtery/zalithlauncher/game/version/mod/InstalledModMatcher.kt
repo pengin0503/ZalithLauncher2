@@ -79,7 +79,10 @@ suspend fun scanModFingerprints(modsDir: File): List<ModFingerprints> =
                         }
                     }
                 }
-            }.awaitAll().filterNotNull()
+            }.awaitAll().filterNotNull().also {
+                // IO2: persist newly computed fingerprints once for the whole scan.
+                ModMetadataCache.save()
+            }
         }
     }
 
