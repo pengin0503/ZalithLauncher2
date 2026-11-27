@@ -147,6 +147,14 @@ internal object ModMetadataCache {
                             throw IllegalStateException("Failed to replace the mod metadata cache file")
                         }
                     }
+                } catch (_: UnsupportedOperationException) {
+                    // 与 VerifyStampStore 一致：某些文件系统直接拒绝 ATOMIC_MOVE
+                    if (!tmp.renameTo(file)) {
+                        file.delete()
+                        if (!tmp.renameTo(file)) {
+                            throw IllegalStateException("Failed to replace the mod metadata cache file")
+                        }
+                    }
                 }
                 dirty = false
             } finally {
