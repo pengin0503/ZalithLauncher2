@@ -630,7 +630,7 @@ private fun ResourcePackList(
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                 state = scrollState,
             ) {
-                items(list) { pack ->
+                items(list, key = { it.file.absolutePath }) { pack ->
                     ResourcePackItemLayout(
                         modifier = Modifier
                             .fillMaxWidth()
