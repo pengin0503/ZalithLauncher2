@@ -62,7 +62,12 @@ class ZLApplication : Application(), SingletonImageLoader.Factory {
 
     override fun onCreate() {
         GlobalContext = this
-        TLSSecurity.install()
+        // ST3: rebuilding the platform trust store is main-process work only.
+        // :game / :jvm / :filemanager install the hardened defaults on first
+        // network use via TLSSecurity.ensureInstalled().
+        if (applicationInfo.processName == packageName) {
+            TLSSecurity.install()
+        }
         refreshContext(this)
         //初始化任务保活控制器，需在任何任务开始前完成初始化
         TaskKeepAlive.initialize(this)

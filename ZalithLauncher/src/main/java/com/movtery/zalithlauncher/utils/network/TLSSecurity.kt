@@ -23,6 +23,7 @@ import java.security.GeneralSecurityException
 import java.security.KeyStore
 import java.security.cert.CertificateException
 import java.security.cert.X509Certificate
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.net.ssl.HttpsURLConnection
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLSocketFactory
@@ -77,8 +78,25 @@ object TLSSecurity {
 
     private val hardened: Pair<SSLContext, X509TrustManager> by lazy { createHardened() }
 
-    val sslSocketFactory: SSLSocketFactory get() = hardened.first.socketFactory
-    val trustManager: X509TrustManager get() = hardened.second
+    /**
+     * ST3: whether this process already installed the hardened defaults.
+     * Only the main process performs HTTPS calls during normal launches; the
+     * other processes install on first use instead of rebuilding the platform
+     * trust store in every Application.onCreate.
+     */
+    private val installed = AtomicBoolean(false)
+
+    val sslSocketFactory: SSLSocketFactory
+        get() {
+            ensureInstalled()
+            return hardened.first.socketFactory
+        }
+
+    val trustManager: X509TrustManager
+        get() {
+            ensureInstalled()
+            return hardened.second
+        }
 
     /**
      * 安装进程级默认 TLS 校验
@@ -87,6 +105,16 @@ object TLSSecurity {
         val (context, _) = hardened
         SSLContext.setDefault(context)
         HttpsURLConnection.setDefaultSSLSocketFactory(context.socketFactory)
+        installed.set(true)
+    }
+
+    /**
+     * First-use hook for processes that skip [install] at startup: any of our
+     * network clients (or a plugin) asking for the hardened socket factory
+     * also gets the process-wide defaults installed before it makes a request.
+     */
+    fun ensureInstalled() {
+        if (!installed.get()) install()
     }
 
     /** 判断证书的公钥是否为已泄露的 CA 公钥 */
