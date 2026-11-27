@@ -109,6 +109,9 @@ fun writeComponentAssetManifests(assetsDir: File) {
         "components/caciocavallo",
         "components/caciocavallo17",
         "components/launcher",
+        // JNA 5.17.0 / 5.18.0 / 5.19.1 share one byte-identical native under
+        // runtimes/jna/shared/natives/<abi>; UnpackJnaTask expands that single
+        // manifest entry into one installed file per version directory.
         "runtimes/jna"
     )
     val lwjglRoot = File(assetsDir, "app_runtime/lwjgl")
