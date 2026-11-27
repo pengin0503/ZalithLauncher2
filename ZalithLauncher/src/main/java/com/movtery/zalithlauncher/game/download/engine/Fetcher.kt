@@ -197,7 +197,7 @@ class ChecksumMismatchException(
 object Fetcher {
     const val DEFAULT_RETRY = 5
 
-    private const val TIMEOUT_MILLIS = 10_000
+    private const val TIMEOUT_MILLIS = 10_000L
     private const val MAX_REDIRECTS = 20
     private const val RETRY_BACKOFF_MILLIS = 200L
     private const val BUFFER_SIZE = 32 * 1024
