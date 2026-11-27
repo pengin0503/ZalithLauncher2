@@ -525,8 +525,11 @@ class VMActivity : BaseAppCompatActivity(), SurfaceTextureListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        //初始化物理鼠标连接检查器
-        PhysicalMouseChecker.initChecker(this)
+        // ST7: InputDevice enumeration is N+1 binder calls; do it on IO and
+        // keep only the listener registration on the main looper.
+        lifecycleScope.launch(Dispatchers.IO) {
+            PhysicalMouseChecker.initChecker(this@VMActivity)
+        }
 
         //启动前台服务，防止后台网络中断
         runCatching {

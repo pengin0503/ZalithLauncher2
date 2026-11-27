@@ -21,8 +21,12 @@ package com.movtery.zalithlauncher.utils.device
 import android.app.Activity
 import android.content.Context
 import android.hardware.input.InputManager
+import android.os.Handler
+import android.os.Looper
 import android.view.InputDevice
 import com.movtery.zalithlauncher.utils.logging.Logger
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private const val TAG = "PhysicalMouseChecker"
 
@@ -30,12 +34,19 @@ object PhysicalMouseChecker {
     /**
      * 当前是否有实体鼠标连接
      */
+    @Volatile
     var physicalMouseConnected = false
         private set
 
-    fun initChecker(activity: Activity) {
-        //粗检测，因为启动软件前可能已经连接实体鼠标了
-        physicalMouseConnected = isPhysicalMouseConnected()
+    /**
+     * ST7: the initial enumeration performs N+1 InputDevice binder calls. Run
+     * that coarse check on IO; only the listener registration needs the main
+     * looper. The initial state may settle one frame later, which is fine for
+     * the mouse-mode UI.
+     */
+    suspend fun initChecker(activity: Activity) {
+        val connected = withContext(Dispatchers.IO) { isPhysicalMouseConnected() }
+        physicalMouseConnected = connected
         Logger.info(TAG, "Initialization complete, physical mouse connection status: $physicalMouseConnected")
 
         val listener = object : InputManager.InputDeviceListener {
@@ -62,7 +73,9 @@ object PhysicalMouseChecker {
         }
 
         val inputManager = activity.getSystemService(Context.INPUT_SERVICE) as InputManager
-        inputManager.registerInputDeviceListener(listener, null)
+        withContext(Dispatchers.Main.immediate) {
+            inputManager.registerInputDeviceListener(listener, Handler(Looper.getMainLooper()))
+        }
     }
 }
 
