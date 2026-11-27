@@ -61,7 +61,8 @@ static void logSyncAfterWrite(size_t written) {
             (long long) (now.tv_sec - lastSyncTime.tv_sec) * 1000000000LL +
             (long long) (now.tv_nsec - lastSyncTime.tv_nsec);
 
-    if (latestlog_fd != -1 &&
+    // 0 is the failed-open sentinel set by LoggerBridge_start(), not a log fd.
+    if (latestlog_fd > 0 &&
         (unsyncedBytes >= LOG_SYNC_BYTES_THRESHOLD || elapsedNs >= LOG_SYNC_INTERVAL_NS)) {
         fdatasync(latestlog_fd);
         unsyncedBytes = 0;
@@ -74,7 +75,7 @@ static void logSyncAfterWrite(size_t written) {
 // re-init, logger start failure, JVM exit).
 static void logSyncNow(void) {
     pthread_mutex_lock(&logSyncLock);
-    if (latestlog_fd != -1 && unsyncedBytes > 0) {
+    if (latestlog_fd > 0 && unsyncedBytes > 0) {
         fdatasync(latestlog_fd);
         unsyncedBytes = 0;
     }
