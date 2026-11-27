@@ -173,6 +173,21 @@ object MCOptions {
         }
     }
 
+    /**
+     * 重载磁盘内容并保留尚未保存的 set() 修改：loadInternal() 会清空 dirtyKeys，
+     * 因此防抖重载也必须把脏键恢复，否则紧随其后的 save() 看不到它们。
+     */
+    private fun reloadAndMergePending() {
+        val pendingChanges = dirtyKeys.mapNotNull { key ->
+            parameterMap[key]?.let { key to it }
+        }
+        loadInternal()
+        pendingChanges.forEach { (key, value) ->
+            parameterMap[key] = value
+            dirtyKeys.add(key)
+        }
+    }
+
     private fun updateLoadedMeta(file: File) {
         if (file.exists()) {
             lastLoadedSize = file.length()
@@ -214,15 +229,7 @@ object MCOptions {
                 try {
                     fileObserver?.stopWatching()
                     if (reloadPending) {
-                        val pendingChanges = dirtyKeys.mapNotNull { key ->
-                            parameterMap[key]?.let { key to it }
-                        }
-                        loadInternal()
-                        pendingChanges.forEach { (key, value) ->
-                            parameterMap[key] = value
-                            //loadInternal 会清空 dirtyKeys；写入成功前保持脏标记
-                            dirtyKeys.add(key)
-                        }
+                        reloadAndMergePending()
                     }
                     if (writeFileAtomically(file)) {
                         dirtyKeys.clear()
@@ -267,7 +274,7 @@ object MCOptions {
             debounceJob = observerScope.launch {
                 delay(OBSERVER_DEBOUNCE_MS)
                 synchronized(lock) {
-                    loadInternal()
+                    reloadAndMergePending()
                 }
             }
         }
