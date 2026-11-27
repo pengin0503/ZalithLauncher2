@@ -27,6 +27,7 @@ import com.movtery.zalithlauncher.utils.string.getMessageOrToString
 import kotlinx.coroutines.CancellationException
 import org.apache.commons.io.FileUtils
 import java.io.File
+import java.io.FileInputStream
 import java.io.IOException
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
@@ -145,6 +146,15 @@ abstract class UnpackSingleTask(
 
             if (!verifyComponentDirectory(staging, files)) {
                 throw IOException("Staged component failed SHA-1 verification: $fileDirName")
+            }
+            // IO1: one explicit staging-directory sync before the atomic commit
+            // replaces the removed per-file fsyncs. File contents are already
+            // verified above; a process kill at any later point is safe, while
+            // abrupt power loss may still drop unverified-to-disk page cache.
+            runCatching {
+                FileInputStream(staging).use { it.fd.sync() }
+            }.onFailure { e ->
+                Logger.warning(TAG, "Failed to sync staging directory: ${staging.absolutePath}", e)
             }
             commitComponent(target, staging, backup)
             //commit 已成功，此时写入的 stamp 才与目标目录的真实内容对应

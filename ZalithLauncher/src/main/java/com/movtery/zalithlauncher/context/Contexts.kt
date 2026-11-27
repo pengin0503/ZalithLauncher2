@@ -77,7 +77,15 @@ fun Context.copyAssetFile(
 fun Context.copyAssetFile(
     fileName: String,
     output: File,
-    overwrite: Boolean
+    overwrite: Boolean,
+    /**
+     * IO1: a full fsync per copied asset used to cost ~65 fsyncs on a first
+     * install. Files are re-read and SHA-1-verified from page cache before the
+     * staging directory is atomically committed, so leave durability opt-in.
+     * Only power loss (not a process kill) can lose the just-written data;
+     * this is the same trade-off already accepted for batched log writes.
+     */
+    sync: Boolean = false
 ) {
     val destinationFile = output.ensureParentDirectory()
     if (destinationFile.exists() && !overwrite) return
@@ -85,7 +93,7 @@ fun Context.copyAssetFile(
         FileOutputStream(output).use { out ->
             input.copyTo(out)
             out.flush()
-            out.fd.sync()
+            if (sync) out.fd.sync()
         }
     }
 }
