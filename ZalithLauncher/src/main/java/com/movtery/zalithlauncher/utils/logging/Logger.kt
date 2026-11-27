@@ -233,9 +233,10 @@ object Logger : CoroutineScope {
             throwable = throwable
         )
 
-        launch {
-            channel.send(logMessage)
-        }
+        // The channel is UNLIMITED, so trySend can never fail or reorder.
+        // A launch{} here only added a coroutine plus two dispatcher hops per
+        // log line (hot paths log once per copied file / downloaded URL).
+        channel.trySend(logMessage)
     }
 
     /**
