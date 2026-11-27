@@ -20,6 +20,7 @@ package com.movtery.zalithlauncher.utils.logging
 
 import android.content.Context
 import android.util.Log
+import com.movtery.zalithlauncher.BuildConfig
 import com.movtery.zalithlauncher.BuildKeys
 import com.movtery.zalithlauncher.path.PathManager
 import com.movtery.zalithlauncher.setting.LauncherSettings
@@ -61,6 +62,10 @@ object Logger : CoroutineScope {
     // by the single channel consumer in processEvents(), so one shared instance
     // is safe and avoids allocating a formatter for every log line.
     private val timeFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
+
+    // R3: Lite builds drop DEBUG/TRACE lines. INFO/WARNING/ERROR and every
+    // crash path are always kept; non-lite builds keep the old behaviour.
+    private val verboseLoggingEnabled: Boolean = !BuildConfig.LITE_BUILD
 
     private val logRetentionDays: Int
         get() = LauncherSettings.launcherLogRetentionDays.getValue()
@@ -225,10 +230,19 @@ object Logger : CoroutineScope {
         log(Level.DEBUG, tag, msg, t)
 
     /**
+     * Lazy DEBUG message: the lambda (and any string interpolation inside it)
+     * is not evaluated at all when DEBUG logging is disabled.
+     */
+    fun debug(tag: String, lazyMsg: () -> String, t: Throwable? = null) {
+        if (verboseLoggingEnabled) log(Level.DEBUG, tag, lazyMsg(), t)
+    }
+
+    /**
      * 输出日志
      */
     fun log(level: Level, tag: String, message: String, throwable: Throwable? = null) {
         if (!isInitialized.get()) return
+        if (!verboseLoggingEnabled && (level == Level.DEBUG || level == Level.TRACE)) return
 
         val logMessage = LogMessage(
             time = System.currentTimeMillis(),

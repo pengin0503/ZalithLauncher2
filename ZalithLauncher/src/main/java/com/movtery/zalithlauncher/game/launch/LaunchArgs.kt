@@ -318,7 +318,7 @@ class LaunchArgs(
         for (jarFile in classpath) {
             val jarFileObj = File(jarFile)
             if (!jarFileObj.exists()) {
-                Logger.debug(TAG, "Ignored non-exists file: $jarFile")
+                Logger.debug(TAG) { "Ignored non-exists file: $jarFile" }
                 continue
             }
             add(jarFile)

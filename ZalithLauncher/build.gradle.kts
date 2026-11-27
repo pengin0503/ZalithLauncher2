@@ -246,6 +246,10 @@ android {
         versionName = launcherVersionName
         manifestPlaceholders["launcher_name"] = if (liteBuild) "Zalith Lite" else launcherAPPName
 
+        // R3: let runtime code gate DEBUG/TRACE logging in Lite builds without
+        // changing diagnostics in non-lite builds (including non-lite release).
+        buildConfigField("boolean", "LITE_BUILD", liteBuild.toString())
+
         // Stage 5-3: the arm64 Lite native flags (-O3, -mcpu=cortex-a78,
         // --gc-sections, selective -fvisibility=hidden) are only defined in
         // Android.mk when LITE_BUILD=1, so non-lite builds keep generic codegen.
