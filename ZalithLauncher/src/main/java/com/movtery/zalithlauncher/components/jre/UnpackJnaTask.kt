@@ -34,18 +34,33 @@ class UnpackJnaTask(context: Context) : UnpackSingleTask(
 ) {
     override fun selectFiles(manifest: AssetManifest): List<ComponentFile> {
         val abi = Architecture.archAsStringAndroid(Architecture.getDeviceArchitecture())
-        val versions = manifest.files.mapTo(HashSet()) { it.path.substringBefore('/') }
-        val files = manifest.files.mapNotNull { file ->
+        val declaredVersions = manifest.files.mapTo(HashSet()) { it.path.substringBefore('/') }
+        val files = manifest.files.flatMap { file ->
             val parts = file.path.split('/')
-            require(parts.size == 4 && parts[1] == "natives" && parts[3] == "libjnidispatch.so") {
-                "Unsupported JNA asset path: ${file.path}"
+            when {
+                // 5.17.0 / 5.18.0 / 5.19.1 have byte-identical natives, so they
+                // share one asset that is installed into every version directory.
+                parts.size == 4 && parts[0] == SHARED_ASSET_DIR && parts[1] == "natives" &&
+                    parts[2] == abi && parts[3] == "libjnidispatch.so" -> {
+                    SHARED_VERSIONS.map { version -> file.toComponentFile("$version/libjnidispatch.so") }
+                }
+                // Older JNA versions still ship one native per version directory.
+                parts.size == 4 && parts[1] == "natives" && parts[3] == "libjnidispatch.so" -> {
+                    if (parts[2] == abi) listOf(file.toComponentFile("${parts[0]}/libjnidispatch.so"))
+                    else emptyList()
+                }
+                else -> throw IllegalArgumentException("Unsupported JNA asset path: ${file.path}")
             }
-            if (parts[2] != abi) return@mapNotNull null
-            file.toComponentFile("${parts[0]}/libjnidispatch.so")
         }
-        require(files.mapTo(HashSet()) { it.outputPath.substringBefore('/') } == versions) {
+        val expectedVersions = declaredVersions - SHARED_ASSET_DIR + SHARED_VERSIONS
+        require(files.mapTo(HashSet()) { it.outputPath.substringBefore('/') } == expectedVersions) {
             "JNA assets are incomplete for ABI: $abi"
         }
         return files
+    }
+
+    private companion object {
+        const val SHARED_ASSET_DIR = "shared"
+        val SHARED_VERSIONS = listOf("5.17.0", "5.18.0", "5.19.1")
     }
 }

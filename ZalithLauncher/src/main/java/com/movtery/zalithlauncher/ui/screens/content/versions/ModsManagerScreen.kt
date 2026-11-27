@@ -1119,7 +1119,7 @@ private fun ModsList(
             }
 
             val list = modsList ?: emptyList()
-            items(list) { mod ->
+            items(list, key = { it.localMod.file.absolutePath }) { mod ->
                 ModItemLayout(
                     modifier = Modifier.fillMaxWidth(),
                     mod = mod,

@@ -88,10 +88,62 @@ object VersionCardManager {
     /** 全部版本卡片及其当前可用性状态 */
     val cards: StateFlow<List<VersionCardState>> = _cards.asStateFlow()
 
-    init {
-        _cards.value = loadRecords().map { record ->
-            VersionCardState(record, VersionCardStatus.Loading)
+    /**
+     * 每张卡片各自的独立状态流：单张卡片变化只通知对应卡片，
+     * 避免主页网格里每张卡都扫描整张列表并重组。
+     */
+    private val cardFlows = mutableMapOf<String, MutableStateFlow<VersionCardState?>>()
+
+    /** 取指定卡片的独立状态流；卡片被移除后流会发射 null */
+    fun cardFlow(cardId: String): StateFlow<VersionCardState?> = synchronized(this) {
+        cardFlows.getOrPut(cardId) {
+            MutableStateFlow(_cards.value.firstOrNull { it.record.cardId == cardId })
         }
+    }
+
+    /** 统一更新列表并把变化同步到各卡片流，只有真正变化的卡片才发射 */
+    private fun updateCards(transform: (List<VersionCardState>) -> List<VersionCardState>) {
+        var updated: List<VersionCardState> = emptyList()
+        _cards.update { states ->
+            transform(states).also { updated = it }
+        }
+        syncCardFlows(updated)
+    }
+
+    private fun setCards(states: List<VersionCardState>) {
+        _cards.value = states
+        syncCardFlows(states)
+    }
+
+    /** 已删除的卡片先置 null 再移除流，保证仍在收集的旧可组合项能看到移除 */
+    private fun syncCardFlows(states: List<VersionCardState>) {
+        synchronized(this) {
+            val alive = HashSet<String>(states.size)
+            states.forEach { state ->
+                val id = state.record.cardId
+                alive += id
+                val flow = cardFlows[id]
+                if (flow == null) {
+                    cardFlows[id] = MutableStateFlow(state)
+                } else {
+                    flow.value = state
+                }
+            }
+            val iterator = cardFlows.entries.iterator()
+            while (iterator.hasNext()) {
+                val entry = iterator.next()
+                if (entry.key !in alive) {
+                    entry.value.value = null
+                    iterator.remove()
+                }
+            }
+        }
+    }
+
+    init {
+        setCards(loadRecords().map { record ->
+            VersionCardState(record, VersionCardStatus.Loading)
+        })
         recheck()
         //版本列表刷新后同步卡片可用性
         VersionsManager.registerListener {
@@ -118,7 +170,7 @@ object VersionCardManager {
                 versionName = version.getVersionName(),
                 dir = dir
             )
-            _cards.update { states ->
+            updateCards { states ->
                 states + VersionCardState(record, VersionCardStatus.Available(version))
             }
             saveRecords()
@@ -131,7 +183,7 @@ object VersionCardManager {
         synchronized(this) {
             val removed = _cards.value.any { it.record.cardId == cardId }
             if (!removed) return
-            _cards.update { states -> states.filterNot { it.record.cardId == cardId } }
+            updateCards { states -> states.filterNot { it.record.cardId == cardId } }
             saveRecords()
         }
     }
@@ -144,7 +196,7 @@ object VersionCardManager {
         synchronized(this) {
             val changed = _cards.value.any { it.record.versionName == oldName && it.record.dir == dir }
             if (!changed) return
-            _cards.update { states ->
+            updateCards { states ->
                 states.map { state ->
                     if (state.record.versionName == oldName && state.record.dir == dir) {
                         state.copy(record = state.record.copy(versionName = newName))
@@ -169,7 +221,7 @@ object VersionCardManager {
                 state.copy(status = resolveStatus(state.record))
             }
             //状态无变化时不发射，避免触发主页网格的无效重组
-            if (updated != current) _cards.value = updated
+            if (updated != current) setCards(updated)
         }
     }
 

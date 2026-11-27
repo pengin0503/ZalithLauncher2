@@ -40,6 +40,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import org.jackhuang.hmcl.addon.AddonProjectInfo
+import java.io.File
 
 private const val TAG = "RemoteMod"
 
@@ -103,8 +104,8 @@ class RemoteMod(
                 val modFileCache = modFileCache()
 
                 runCatching {
-                    //获取文件 sha1，作为缓存的键
-                    val sha1 = calculateFileSha1(file)
+                    // IO2: reuse the persisted sha1 instead of re-reading the JAR.
+                    val sha1 = resolveSha1(file, null)
 
                     //从缓存加载项目信息
                     val cachedProject = if (loadFromCache) {
@@ -166,9 +167,23 @@ class RemoteMod(
         sha1: String? = null
     ): ModFile? {
         val file = localMod.file
-        val sha10 = sha1 ?: calculateFileSha1(file)
+        val sha10 = resolveSha1(file, sha1)
         val version = getVersionByLocalFile(file, sha10)
         return version?.toModFile()
+    }
+
+    /**
+     * IO2: prefer the persisted sha1 (size+mtime validated) over a full JAR
+     * read. A freshly computed hash is stored back into the shared cache so
+     * the next cold open of the mods manager can skip the read entirely.
+     */
+    private suspend fun resolveSha1(file: File, provided: String?): String {
+        provided?.let { return it }
+        ModMetadataCache.getFingerprints(file)?.sha1?.let { return it }
+        val computed = calculateFileSha1(file)
+        ModMetadataCache.putSha1(file, computed)
+        ModMetadataCache.save()
+        return computed
     }
 
     private fun PlatformVersion.toModFile(): ModFile {

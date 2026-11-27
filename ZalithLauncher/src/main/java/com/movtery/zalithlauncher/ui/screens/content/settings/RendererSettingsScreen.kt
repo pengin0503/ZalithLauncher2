@@ -47,6 +47,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.movtery.zalithlauncher.R
 import com.movtery.zalithlauncher.game.plugin.Plugin
 import com.movtery.zalithlauncher.game.plugin.driver.Driver
@@ -102,6 +103,8 @@ fun RendererSettingsScreen(
         Triple(key, mainScreenKey, false),
         Triple(NormalNavKey.Settings.Renderer, settingsScreenKey, false)
     ) { isVisible ->
+        // ST4: plugin renderers can arrive after the first frame.
+        val renderers by Renderers.renderersFlow.collectAsStateWithLifecycle()
         AnimatedColumn(
             modifier = Modifier
                 .fillMaxWidth()
@@ -116,9 +119,8 @@ fun RendererSettingsScreen(
                         .animated(ctx)
                 ) {
                     val currentRendererId = RendererSettings.renderer.state
-                    val currentRenderer = remember(currentRendererId) {
-                        Renderers.getRenderers()
-                            .find { it.getUniqueIdentifier() == currentRendererId }
+                    val currentRenderer = remember(currentRendererId, renderers) {
+                        renderers.find { it.getUniqueIdentifier() == currentRendererId }
                     }
                     val configurableRenderer = remember(currentRenderer) {
                         (currentRenderer as? ConfigurableRenderer)
@@ -129,10 +131,11 @@ fun RendererSettingsScreen(
                     val configRevision = RendererConfigChanges.revision
                     val loadedRenderers by produceState(
                         initialValue = emptyMap(),
-                        key1 = configRevision
+                        key1 = configRevision,
+                        key2 = renderers
                     ) {
                         value = withContext(Dispatchers.IO) {
-                            Renderers.getRenderers().associateBy({ it.getUniqueIdentifier() }) { renderer ->
+                            renderers.associateBy({ it.getUniqueIdentifier() }) { renderer ->
                                 loadRenderer(renderer, version = null)
                             }
                         }
@@ -142,7 +145,7 @@ fun RendererSettingsScreen(
                         modifier = Modifier.fillMaxWidth(),
                         position = CardPosition.Top,
                         unit = RendererSettings.renderer,
-                        items = Renderers.getRenderers(),
+                        items = renderers,
                         title = stringResource(R.string.settings_renderer_global_renderer_title),
                         summary = stringResource(R.string.settings_renderer_global_renderer_summary),
                         getItemText = { it.getRendererName() },

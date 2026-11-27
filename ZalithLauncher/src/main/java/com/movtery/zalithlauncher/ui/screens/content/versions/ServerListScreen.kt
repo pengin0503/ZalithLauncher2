@@ -709,7 +709,10 @@ private fun ServerListBody(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 state = scrollState,
             ) {
-                items(list) { server ->
+                // servers.dat may contain duplicate IPs, and originIp is editable;
+                // object identity stays stable across filtering and guarantees
+                // unique keys even for two entries with the same address.
+                items(list, key = { "${it.originIp}#${System.identityHashCode(it)}" }) { server ->
                     ServerItem(
                         modifier = Modifier.fillMaxWidth(),
                         item = server,

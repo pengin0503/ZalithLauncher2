@@ -38,6 +38,7 @@ import com.movtery.zalithlauncher.game.account.refreshMicrosoft
 import com.movtery.zalithlauncher.game.download.game.GameLibDownloader
 import com.movtery.zalithlauncher.game.download.jvm_server.isGameProcessRunning
 import com.movtery.zalithlauncher.game.download.jvm_server.stopGameProcess
+import com.movtery.zalithlauncher.game.plugin.PluginLoader
 import com.movtery.zalithlauncher.game.renderer.RendererInterface
 import com.movtery.zalithlauncher.game.renderer.Renderers
 import com.movtery.zalithlauncher.game.renderer.detectFpeEmulatorMods
@@ -512,6 +513,10 @@ class GameLaunchFlow(scope: CoroutineScope) {
         ensureVulkanSupported: suspend (Version) -> Boolean,
         onRendererUnsupported: suspend (RendererInterface, Version) -> Boolean
     ) {
+        // ST4: the plugin scan writes PluginPackageCache and registers plugin
+        // renderers on IO. Wait for it before choosing a renderer so :game's
+        // targeted plugin path never sees a half-populated cache.
+        PluginLoader.awaitPluginsLoaded()
         val renderer = Renderers.setCurrentRenderer(version.getRenderer())
         val mcVer = version.getVersionInfo()?.minecraftVersion ?: version.getVersionName()
 

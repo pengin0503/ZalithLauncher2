@@ -358,7 +358,7 @@ class ModUpdater(
 
     private fun File.createDirAndLog(): File {
         this.mkdirs()
-        Logger.debug(TAG, "Created directory: $this")
+        Logger.debug(TAG) { "Created directory: $this" }
         return this
     }
 }

@@ -31,7 +31,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -53,7 +52,6 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImagePainter
 import coil3.compose.rememberAsyncImagePainter
-import coil3.imageLoader
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.movtery.zalithlauncher.R
@@ -244,10 +242,9 @@ fun AddonIcon(
         }
     }
 
-    //预加载
-    LaunchedEffect(imageRequest) {
-        imageRequest?.let { context.imageLoader.enqueue(it) }
-    }
+    // rememberAsyncImagePainter already enqueues this same request on the
+    // singleton ImageLoader in the same composition; the old explicit enqueue
+    // submitted a duplicate (and logged the onError warning twice).
 
     val painter = rememberAsyncImagePainter(
         model = imageRequest,

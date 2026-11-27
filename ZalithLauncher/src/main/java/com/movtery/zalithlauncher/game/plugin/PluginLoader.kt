@@ -32,20 +32,67 @@ import com.movtery.zalithlauncher.game.plugin.renderer.RendererPluginManager
 import com.movtery.zalithlauncher.game.plugin.renderer_v2.RendererV2PluginManager
 import com.movtery.zalithlauncher.game.renderer.Renderers
 import com.movtery.zalithlauncher.utils.logging.Logger
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 /**
  * 统一插件的加载，保证仅获取一次应用列表
  */
 object PluginLoader {
+    @Volatile
     private var isInitialized: Boolean = false
     private const val PACKAGE_FLAGS =
         PackageManager.GET_META_DATA or PackageManager.GET_SHARED_LIBRARY_FILES
 
     /**
+     * ST4: allPlugins is published as a StateFlow because the full scan now
+     * runs on IO while Compose can already be drawing the first frame.
+     */
+    private val _allPlugins = MutableStateFlow<List<ApkPlugin>>(emptyList())
+    val allPluginsFlow: StateFlow<List<ApkPlugin>> = _allPlugins.asStateFlow()
+
+    /**
      * 所有已加载的应用插件
      */
-    var allPlugins: List<ApkPlugin> = emptyList()
-        private set
+    var allPlugins: List<ApkPlugin>
+        get() = _allPlugins.value
+        private set(value) { _allPlugins.value = value }
+
+    /**
+     * ST4: a single serial queue for background scans. Chaining on the previous
+     * job keeps onCreate (force=false) and onNewIntent (force=true) from racing
+     * or dropping a forced reload, and lets the launch flow await the scan that
+     * writes PluginPackageCache before it selects a renderer.
+     */
+    private val scanScope = CoroutineScope(SupervisorJob() + Dispatchers.IO + CoroutineName("PluginLoader"))
+    @Volatile
+    private var lastScanJob: Job = CompletableDeferred<Unit>().also { it.complete(Unit) }
+
+    fun scheduleReload(context: Context, force: Boolean, resetRenderers: Boolean = false) {
+        val appContext = context.applicationContext
+        val previous = lastScanJob
+        lastScanJob = scanScope.launch {
+            previous.join()
+            // Keep the forced renderer reset inside the same queue so it cannot
+            // interleave with a scan still adding plugin renderers on IO.
+            if (resetRenderers) Renderers.init(true)
+            runCatching { loadAllPlugins(appContext, force) }
+                .onFailure { e -> Logger.error("PluginLoader", "Plugin scan failed", e) }
+        }
+    }
+
+    /** Wait until the most recently scheduled scan has finished. */
+    suspend fun awaitPluginsLoaded() {
+        lastScanJob.join()
+    }
 
     @JvmStatic
     @SuppressLint("QueryPermissionsNeeded")

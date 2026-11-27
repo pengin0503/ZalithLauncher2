@@ -20,8 +20,10 @@ package com.movtery.zalithlauncher.utils
 
 import android.Manifest
 import android.app.Activity
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Environment
@@ -48,13 +50,58 @@ var canHandlePermission: Boolean = false
     private set
 
 /**
+ * ST6: presence of the settings Activity is process-static, but used to be
+ * re-queried through PackageManager on every Activity create/resume. Cache it
+ * and drop the cached value only when the set of installed packages changes.
+ */
+@Volatile
+private var canHandlePermissionCache: Boolean? = null
+@Volatile
+private var packageReceiverRegistered = false
+
+private val packageStateReceiver = object : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        canHandlePermissionCache = null
+    }
+}
+
+@Synchronized
+private fun ensurePackageStateReceiver(context: Context) {
+    if (canHandlePermissionCache != null || packageReceiverRegistered) return
+    val filter = IntentFilter().apply {
+        addAction(Intent.ACTION_PACKAGE_ADDED)
+        addAction(Intent.ACTION_PACKAGE_REMOVED)
+        addAction(Intent.ACTION_PACKAGE_CHANGED)
+        addDataScheme("package")
+    }
+    runCatching {
+        ContextCompat.registerReceiver(
+            context.applicationContext,
+            packageStateReceiver,
+            filter,
+            ContextCompat.RECEIVER_EXPORTED
+        )
+    }.onFailure { e ->
+        Logger.warning(TAG, "Failed to register package-change receiver", e)
+    }
+    // Do not retry on every resume even if registration was rejected.
+    packageReceiverRegistered = true
+}
+
+/**
  * 检查存储权限，并检查是否能够处理存储权限申请
  * @return 是否拥有存储权限
  */
 fun checkStoragePermissionsForInit(context: Context) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        val intent = getPermissionSettingsAndroid11AndAbove(context)
-        canHandlePermission = intent.resolveActivity(context.packageManager) != null
+        ensurePackageStateReceiver(context)
+        canHandlePermission = canHandlePermissionCache ?: run {
+            val intent = getPermissionSettingsAndroid11AndAbove(context)
+            val handlerAvailable = intent.resolveActivity(context.packageManager) != null
+            canHandlePermissionCache = handlerAvailable
+            handlerAvailable
+        }
+        // Has-permission must stay fresh on every resume.
         hasStoragePermission = checkPermissionsForAndroid11AndAbove()
     } else {
         canHandlePermission = true

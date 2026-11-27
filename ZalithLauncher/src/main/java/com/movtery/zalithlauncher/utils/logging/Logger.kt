@@ -20,6 +20,7 @@ package com.movtery.zalithlauncher.utils.logging
 
 import android.content.Context
 import android.util.Log
+import com.movtery.zalithlauncher.BuildConfig
 import com.movtery.zalithlauncher.BuildKeys
 import com.movtery.zalithlauncher.path.PathManager
 import com.movtery.zalithlauncher.setting.LauncherSettings
@@ -56,6 +57,15 @@ object Logger : CoroutineScope {
     private lateinit var PROCESS_TAG: String
     private val isInitialized = AtomicBoolean(false)
     private val channel = Channel<LogMessage>(Channel.UNLIMITED)
+
+    // SimpleDateFormat is not thread-safe, but formatMessage() is only called
+    // by the single channel consumer in processEvents(), so one shared instance
+    // is safe and avoids allocating a formatter for every log line.
+    private val timeFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
+
+    // R3: Lite builds drop DEBUG/TRACE lines. INFO/WARNING/ERROR and every
+    // crash path are always kept; non-lite builds keep the old behaviour.
+    private val verboseLoggingEnabled: Boolean = !BuildConfig.LITE_BUILD
 
     private val logRetentionDays: Int
         get() = LauncherSettings.launcherLogRetentionDays.getValue()
@@ -182,7 +192,7 @@ object Logger : CoroutineScope {
     }
 
     private fun formatMessage(message: LogMessage): String {
-        val time = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(message.time)
+        val time = timeFormat.format(Date(message.time))
         return buildString {
             append("[$time] [")
             append(message.tag)
@@ -220,10 +230,19 @@ object Logger : CoroutineScope {
         log(Level.DEBUG, tag, msg, t)
 
     /**
+     * Lazy DEBUG message: the lambda (and any string interpolation inside it)
+     * is not evaluated at all when DEBUG logging is disabled.
+     */
+    fun debug(tag: String, t: Throwable? = null, lazyMsg: () -> String) {
+        if (verboseLoggingEnabled) log(Level.DEBUG, tag, lazyMsg(), t)
+    }
+
+    /**
      * 输出日志
      */
     fun log(level: Level, tag: String, message: String, throwable: Throwable? = null) {
         if (!isInitialized.get()) return
+        if (!verboseLoggingEnabled && (level == Level.DEBUG || level == Level.TRACE)) return
 
         val logMessage = LogMessage(
             time = System.currentTimeMillis(),
@@ -233,9 +252,10 @@ object Logger : CoroutineScope {
             throwable = throwable
         )
 
-        launch {
-            channel.send(logMessage)
-        }
+        // The channel is UNLIMITED, so trySend can never fail or reorder.
+        // A launch{} here only added a coroutine plus two dispatcher hops per
+        // log line (hot paths log once per copied file / downloaded URL).
+        channel.trySend(logMessage)
     }
 
     /**

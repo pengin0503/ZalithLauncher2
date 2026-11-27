@@ -48,6 +48,9 @@ const val VERIFY_STAMP_FORMAT_VERSION = 1
 /** 上一游戏会话是否正常退出的标记文件名 */
 private const val SESSION_FLAG_FILE = "session.running"
 
+// safeFileName() is called per stamp/file name during verification.
+private val UNSAFE_FILE_NAME_REGEX = Regex("[^A-Za-z0-9._-]")
+
 private val stampJson = Json {
     ignoreUnknownKeys = true
     encodeDefaults = true
@@ -293,7 +296,7 @@ object VerifyStampStore {
     private fun legacySessionFlagFile(): File = File(PathManager.DIR_VERIFY_STAMPS, SESSION_FLAG_FILE)
 
     private fun safeFileName(name: String): String {
-        val sanitized = name.replace(Regex("[^A-Za-z0-9._-]"), "_")
+        val sanitized = name.replace(UNSAFE_FILE_NAME_REGEX, "_")
         //名称被清洗过时追加哈希，避免 "a/b" 与 "a_b" 落到同一个 stamp
         return if (sanitized == name && sanitized.isNotEmpty()) {
             sanitized

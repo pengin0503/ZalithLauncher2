@@ -109,6 +109,9 @@ fun writeComponentAssetManifests(assetsDir: File) {
         "components/caciocavallo",
         "components/caciocavallo17",
         "components/launcher",
+        // JNA 5.17.0 / 5.18.0 / 5.19.1 share one byte-identical native under
+        // runtimes/jna/shared/natives/<abi>; UnpackJnaTask expands that single
+        // manifest entry into one installed file per version directory.
         "runtimes/jna"
     )
     val lwjglRoot = File(assetsDir, "app_runtime/lwjgl")
@@ -218,12 +221,17 @@ android {
         }
     }
 
+    // S3: resolve the release signing credentials once so the Lite release build
+    // can fall back to the checked-in debug keystore when a fork has none set.
+    val releaseStorePassword = getKeyFromLocal("STORE_PASSWORD", ".store_password.txt")
+    val releaseKeyPassword = getKeyFromLocal("KEY_PASSWORD", ".key_password.txt")
+
     signingConfigs {
         create("releaseBuild") {
             storeFile = file("zalith_launcher.jks")
-            storePassword = getKeyFromLocal("STORE_PASSWORD", ".store_password.txt")
+            storePassword = releaseStorePassword
             keyAlias = "movtery_zalith"
-            keyPassword = getKeyFromLocal("KEY_PASSWORD", ".key_password.txt")
+            keyPassword = releaseKeyPassword
         }
         create("debugBuild") {
             storeFile = file("zalith_launcher_debug.jks")
@@ -243,6 +251,10 @@ android {
         versionName = launcherVersionName
         manifestPlaceholders["launcher_name"] = if (liteBuild) "Zalith Lite" else launcherAPPName
 
+        // R3: let runtime code gate DEBUG/TRACE logging in Lite builds without
+        // changing diagnostics in non-lite builds (including non-lite release).
+        buildConfigField("boolean", "LITE_BUILD", liteBuild.toString())
+
         // Stage 5-3: the arm64 Lite native flags (-O3, -mcpu=cortex-a78,
         // --gc-sections, selective -fvisibility=hidden) are only defined in
         // Android.mk when LITE_BUILD=1, so non-lite builds keep generic codegen.
@@ -250,6 +262,11 @@ android {
             externalNativeBuild {
                 ndkBuild {
                     arguments += "LITE_BUILD=1"
+                    // Debuggable builds default to APP_OPTIM=debug (-O0/-g, no
+                    // NDEBUG). A command-line variable overrides Application.mk;
+                    // native sources already carry the lite -O3/mcpu flags, so
+                    // this only drops debug info and native assert() overhead.
+                    arguments += "APP_OPTIM=release"
                 }
             }
         }
@@ -259,7 +276,16 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfig = signingConfigs.getByName("releaseBuild")
+            // S3: a Lite release built on a personal fork usually has no release
+            // keystore secrets; sign it with the debug keystore so it stays
+            // installable. Non-lite releases keep the official signing config.
+            signingConfig = if (liteBuild &&
+                (releaseStorePassword.isBlank() || releaseKeyPassword.isBlank())
+            ) {
+                signingConfigs.getByName("debugBuild")
+            } else {
+                signingConfigs.getByName("releaseBuild")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -303,6 +329,13 @@ android {
         jniLibs {
             useLegacyPackaging = true
             pickFirsts += listOf("**/libbytehook.so")
+            if (liteBuild) {
+                // unpack200() only repairs Java 8 .pack files; Lite never ships
+                // JRE 8/17 and its JRE 21/25 payloads contain no .pack entries.
+                // Importing a custom Java 8 runtime with .pack files is not
+                // supported in Lite, so leave the dead binary out of the APK.
+                excludes.add("**/libunpack200.so")
+            }
         }
     }
 

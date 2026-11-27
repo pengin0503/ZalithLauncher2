@@ -25,6 +25,9 @@ import com.movtery.zalithlauncher.game.renderer.renderers.MobileGluesRenderer
 import com.movtery.zalithlauncher.game.renderer.renderers.NGGL4ESRenderer
 import com.movtery.zalithlauncher.game.renderer.renderers.VirGLRenderer
 import com.movtery.zalithlauncher.utils.logging.Logger
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 private const val TAG = "Renderers"
 
@@ -36,6 +39,20 @@ object Renderers {
     private var currentRenderer: RendererInterface? = null
     private var isInitialized: Boolean = false
 
+    /**
+     * ST4: the plugin scan now runs on IO while Compose may already be drawing
+     * with built-in renderers. Publish immutable snapshots so the UI converges
+     * instead of reading a list that is being mutated underneath it.
+     */
+    private val _renderersFlow = MutableStateFlow<List<RendererInterface>>(emptyList())
+    val renderersFlow: StateFlow<List<RendererInterface>> = _renderersFlow.asStateFlow()
+
+    /** Called only from the @Synchronized methods below. */
+    private fun publishRenderers() {
+        _renderersFlow.value = renderers.toList()
+    }
+
+    @Synchronized
     fun init(
         reset: Boolean = false
     ) {
@@ -45,6 +62,7 @@ object Renderers {
         if (reset) {
             renderers.clear()
             currentRenderer = null
+            publishRenderers()
         }
 
         addRenderers(
@@ -58,13 +76,15 @@ object Renderers {
     }
 
     /**
-     * 获取当前的渲染器列表
+     * 获取当前的渲染器列表（不可变快照）
      */
-    fun getRenderers(): List<RendererInterface> = renderers
+    @Synchronized
+    fun getRenderers(): List<RendererInterface> = renderers.toList()
 
     /**
      * 获取全部渲染器的旧配置命名空间到当前唯一标识的映射，用于配置迁移
      */
+    @Synchronized
     fun getLegacyRendererIds(): Map<String, String> = buildMap {
         renderers.filterIsInstance<ConfigurableRenderer>().forEach { renderer ->
             renderer.legacyConfigKeys.forEach { put(it, renderer.getUniqueIdentifier()) }
@@ -74,8 +94,9 @@ object Renderers {
     /**
      * 加入一些渲染器
      */
-    fun addRenderers(vararg renderers: RendererInterface) {
-        renderers.forEach { renderer ->
+    @Synchronized
+    fun addRenderers(vararg additions: RendererInterface) {
+        additions.forEach { renderer ->
             addRenderer(renderer)
         }
     }
@@ -83,6 +104,7 @@ object Renderers {
     /**
      * 加入单个渲染器
      */
+    @Synchronized
     fun addRenderer(renderer: RendererInterface): Boolean {
         return if (renderers.any { it.getUniqueIdentifier() == renderer.getUniqueIdentifier() }) {
             Logger.warning(TAG, "The unique identifier of this renderer (${renderer.getRendererName()} - ${renderer.getUniqueIdentifier()}) conflicts with an already loaded renderer. " +
@@ -90,6 +112,7 @@ object Renderers {
             false
         } else {
             renderers.add(renderer)
+            publishRenderers()
             Logger.info(TAG, "Renderer loaded: ${renderer.getRendererName()} (${renderer.getRendererId()} - ${renderer.getUniqueIdentifier()})")
             true
         }
@@ -101,6 +124,7 @@ object Renderers {
      * @param retryToFirstOnFailure 如果未找到匹配的渲染器，是否跳回渲染器列表的首个渲染器
      * @return 当前设置的渲染器对象
      */
+    @Synchronized
     fun setCurrentRenderer(uniqueIdentifier: String, retryToFirstOnFailure: Boolean = true): RendererInterface {
         if (!isInitialized) throw IllegalStateException("Uninitialized renderer!")
         currentRenderer = renderers.find { it.getUniqueIdentifier() == uniqueIdentifier } ?: run {
@@ -116,6 +140,7 @@ object Renderers {
     /**
      * 获取当前的渲染器
      */
+    @Synchronized
     fun getCurrentRenderer(): RendererInterface {
         if (!isInitialized) throw IllegalStateException("Uninitialized renderer!")
         return currentRenderer ?: throw IllegalStateException("Current renderer not set")
@@ -124,5 +149,6 @@ object Renderers {
     /**
      * 当前是否设置了渲染器
      */
+    @Synchronized
     fun isCurrentRendererValid(): Boolean = isInitialized && currentRenderer != null
 }

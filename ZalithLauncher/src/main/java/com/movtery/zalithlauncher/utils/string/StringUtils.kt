@@ -26,6 +26,11 @@ import java.nio.charset.StandardCharsets
 import java.util.UUID
 import java.util.regex.Pattern
 
+// Hoisted: these are constant patterns, but stripColorCodes()/containsChinese()
+// run per list item (saves, servers, mod search results).
+private val COLOR_CODE_REGEX = Regex("§[0-9a-fk-orA-FK-OR]")
+private val CHINESE_PATTERN = Pattern.compile("[一-龥|！，。（）《》“”？：；【】]")
+
 fun shiftString(input: String, direction: ShiftDirection, shiftCount: Int): String {
     if (input.isEmpty()) {
         return input
@@ -168,7 +173,7 @@ fun String.toUnicodeEscaped(): String {
  * 过滤掉颜色占位符
  */
 fun String.stripColorCodes(): String {
-    return replace(Regex("§[0-9a-fk-orA-FK-OR]"), "")
+    return replace(COLOR_CODE_REGEX, "")
 }
 
 fun String.isEmptyOrBlank(): Boolean = this.isEmpty() || this.isBlank()
@@ -184,8 +189,7 @@ fun String?.containsChinese(): Boolean {
         return false
     }
 
-    val pattern = Pattern.compile("[一-龥|！，。（）《》“”？：；【】]")
-    val matcher = pattern.matcher(this)
+    val matcher = CHINESE_PATTERN.matcher(this)
     return matcher.find()
 }
 

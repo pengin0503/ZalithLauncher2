@@ -19,6 +19,7 @@
 package com.movtery.zalithlauncher.filemanager.os
 
 import android.util.Log
+import com.movtery.zalithlauncher.BuildConfig
 import com.movtery.zalithlauncher.filemanager.os.FmLog.init
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -45,6 +46,14 @@ object FmLog {
 
     private val isInitialized = AtomicBoolean(false)
     private val channel = Channel<FmLogMessage>(Channel.UNLIMITED)
+
+    // formatMessage() is only called by the single consumer launched in init()
+    // (a re-init cancels the previous consumer first), so sharing this
+    // non-thread-safe formatter is safe and avoids one allocation per line.
+    private val timeFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
+
+    // R3: Lite builds drop DEBUG lines; INFO/WARNING/ERROR are always kept.
+    private val verboseLoggingEnabled: Boolean = !BuildConfig.LITE_BUILD
 
     private var consumerJob: Job? = null
 
@@ -112,8 +121,14 @@ object FmLog {
     fun error(tag: String, msg: String, t: Throwable? = null) = log(FmLogLevel.ERROR, tag, msg, t)
     fun debug(tag: String, msg: String, t: Throwable? = null) = log(FmLogLevel.DEBUG, tag, msg, t)
 
+    /** Lazy DEBUG message: interpolation is skipped entirely when gated. */
+    fun debug(tag: String, lazyMsg: () -> String, t: Throwable? = null) {
+        if (verboseLoggingEnabled) log(FmLogLevel.DEBUG, tag, lazyMsg(), t)
+    }
+
     private fun log(level: FmLogLevel, tag: String, msg: String, t: Throwable?) {
         if (!isInitialized.get()) return
+        if (!verboseLoggingEnabled && level == FmLogLevel.DEBUG) return
         channel.trySend(FmLogMessage(System.currentTimeMillis(), tag, level, msg, t))
     }
 
@@ -131,7 +146,7 @@ object FmLog {
     }
 
     private fun formatMessage(message: FmLogMessage): String {
-        val time = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date(message.time))
+        val time = timeFormat.format(Date(message.time))
         return buildString {
             append("[$time] [")
             append(message.tag)

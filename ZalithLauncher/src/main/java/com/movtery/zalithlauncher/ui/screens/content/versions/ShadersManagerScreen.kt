@@ -611,7 +611,7 @@ private fun ShadersList(
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                 state = scrollState,
             ) {
-                items(list) { info ->
+                items(list, key = { it.file.absolutePath }) { info ->
                     ShaderPackItem(
                         modifier = Modifier
                             .fillMaxWidth()

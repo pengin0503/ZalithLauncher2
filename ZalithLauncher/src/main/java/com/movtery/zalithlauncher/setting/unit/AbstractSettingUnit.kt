@@ -78,7 +78,10 @@ abstract class AbstractSettingUnit<V>(
             return _flow.value.value
         }
         val flow = _flow.value
-        flow.value = readValue()
+        val stored = readValue()
+        // ST2: avoid needless StateFlow/equality churn; the storage read is still
+        // performed so cross-process (MULTI_PROCESS_MODE) changes are picked up.
+        if (flow.value != stored) flow.value = stored
         return flow.value
     }
 

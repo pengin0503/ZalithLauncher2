@@ -18,6 +18,7 @@
 
 package com.movtery.zalithlauncher.game.download.engine
 
+import com.movtery.zalithlauncher.path.DOWNLOAD_OKHTTP_CLIENT
 import com.movtery.zalithlauncher.path.URL_USER_AGENT
 import com.movtery.zalithlauncher.utils.logging.Logger
 import kotlinx.coroutines.CancellationException
@@ -26,6 +27,10 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.runInterruptible
+import okhttp3.Headers
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
@@ -37,6 +42,7 @@ import java.net.SocketTimeoutException
 import java.net.URL
 import java.net.UnknownHostException
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 import java.util.zip.GZIPInputStream
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -57,20 +63,22 @@ class ResponseInfo(
 
     companion object {
         /**
-         * 按索引枚举响应头
+         * 按索引枚举响应头。
+         *
+         * OkHttp 的 [Headers] 与 HttpURLConnection 的 indexed header 一一对应：
+         * [Headers.name] / [Headers.value] 按收到顺序暴露每一个头（同名头不合并），
+         * 因此换用 OkHttp 后这里仍逐条枚举，不改 ResponseInfo 的取值语义。
          */
-        fun of(code: Int, url: URL, connection: HttpURLConnection): ResponseInfo {
-            val headers = LinkedHashMap<String, MutableList<String>>()
-            var index = 0
-            while (true) {
-                val value = connection.getHeaderField(index) ?: break
-                val name = connection.getHeaderFieldKey(index)
-                if (!name.isNullOrEmpty()) {
-                    headers.getOrPut(name) { mutableListOf() }.add(value)
+        fun of(code: Int, url: URL, headers: Headers): ResponseInfo {
+            val collected = LinkedHashMap<String, MutableList<String>>()
+            for (index in 0 until headers.size) {
+                val value = headers.value(index)
+                val name = headers.name(index)
+                if (name.isNotEmpty()) {
+                    collected.getOrPut(name) { mutableListOf() }.add(value)
                 }
-                index++
             }
-            return ResponseInfo(code, url, headers)
+            return ResponseInfo(code, url, collected)
         }
     }
 }
@@ -189,13 +197,35 @@ class ChecksumMismatchException(
 object Fetcher {
     const val DEFAULT_RETRY = 5
 
-    private const val TIMEOUT_MILLIS = 10_000
+    private const val TIMEOUT_MILLIS = 10_000L
     private const val MAX_REDIRECTS = 20
     private const val RETRY_BACKOFF_MILLIS = 200L
     private const val BUFFER_SIZE = 32 * 1024
 
     /** 源不可达的标记有效期 */
     private const val UNREACHABLE_TTL_MILLIS = 300_000L
+
+    /**
+     * N2：真实文件下载改走 UrlManager 中调优过的 [DOWNLOAD_OKHTTP_CLIENT]
+     * （64 长连接 keep-alive 池、DoH 容灾解析、加固 TLS、仅 h1）。
+     *
+     * [OkHttpClient.newBuilder] 与原客户端共享连接池 / DNS / TLS / 拦截器，
+     * 因此多线程复用与跨批次复用都落在这个池上；这里仅做两项保持原语义的覆写：
+     * - 关闭 OkHttp 自带重定向，继续由 [attempt] 里的手工循环处理，维持 20 跳上限；
+     * - 把超时恢复成原来的 connect/read 各 10s（调优客户端默认是 15s）。
+     *
+     * 注意：请求显式带 `accept-encoding: gzip`，OkHttp 的 BridgeInterceptor 因此
+     * 不会透明解压并剥离 Content-Encoding / Content-Length，gzip 仍由本文件的
+     * [ContentEncoding.wrap] 处理。
+     */
+    private val FETCH_CLIENT: OkHttpClient by lazy {
+        DOWNLOAD_OKHTTP_CLIENT.newBuilder()
+            .followRedirects(false)
+            .followSslRedirects(false)
+            .connectTimeout(TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
+            .readTimeout(TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
+            .build()
+    }
 
     /** 记录连不通的源，避免每个文件都先吃一次连接超时 */
     private val unreachableSources = ConcurrentHashMap<String, Long>()
@@ -386,22 +416,28 @@ object Fetcher {
         }
 
         var currentUri = url
-        var connection: HttpURLConnection?
-        var response: ResponseInfo?
+        var connection: Response? = null
+        var response: ResponseInfo? = null
 
         while (true) {
-            val conn = openConnection(currentUri)
+            val request = Request.Builder()
+                .url(currentUri.toString())
+                .header("User-Agent", URL_USER_AGENT)
+                .apply { headers.forEach { (name, value) -> header(name, value) } }
+                .build()
+            //同步执行：不经过 Dispatcher 的异步限流，16 个文件并发不受影响
+            val received = FETCH_CLIENT.newCall(request).execute()
             var keep = false
             try {
-                headers.forEach { (name, value) -> conn.setRequestProperty(name, value) }
-                val code = conn.responseCode
-                response = ResponseInfo.of(code, conn.url, conn)
+                val code = received.code
+                //逐索引读取响应头，保持与旧 HttpURLConnection 路径完全一致的取值口径
+                response = ResponseInfo.of(code, received.request.url.toUrl(), received.headers)
 
                 if (code in 300..308 && code != HttpURLConnection.HTTP_NOT_MODIFIED && code != 306) {
                     val seen = redirects ?: mutableListOf<URL>().also { redirects = it }
                     if (seen.size >= MAX_REDIRECTS) throw IOException("Too much redirects")
 
-                    val location = conn.getHeaderField("Location")
+                    val location = received.header("Location")
                     if (location.isNullOrBlank()) throw IOException("Redirected to an empty location")
 
                     val target = currentUri.toURI().resolve(location).toURL()
@@ -410,33 +446,39 @@ object Fetcher {
                     currentUri = target
                 } else {
                     keep = true
-                    connection = conn
+                    connection = received
                     break
                 }
             } finally {
-                if (!keep) disconnectQuietly(conn)
+                //非终态响应：等价旧路径 finally 里的 disconnectQuietly(conn)
+                if (!keep) closeQuietly(received)
             }
         }
 
-        val code = response.code
+        val finalResponse = response!!
+        val code = finalResponse.code
 
         if (resumeRequested && code == 416 /* HTTP_RANGE_NOT_SATISFIABLE */) {
             //已有分段不再可用：丢弃续传上下文，从头下载
             state.resume = null
             state.discardSink()
+            closeQuietly(connection)
             return AttemptResult.RESTART_FREE
         }
-        if (code / 100 == 4) throw HttpResultException(code, "HTTP $code: $url")
-        if (code / 100 != 2) throw HttpResultException(code, "HTTP $code: $url")
+        if (code / 100 == 4 || code / 100 != 2) {
+            //错误响应不进入流式落盘，直接释放连接（等价旧路径的失败收尾）
+            closeQuietly(connection)
+            throw HttpResultException(code, "HTTP $code: $url")
+        }
 
-        val contentLength = response.headerAsLong("content-length")
-        val contentEncoding = ContentEncoding.fromHeaders(response)
+        val contentLength = finalResponse.headerAsLong("content-length")
+        val contentEncoding = ContentEncoding.fromHeaders(finalResponse)
 
         if (state.sink == null) {
             state.sink = FileSink(targetFile, sha1)
-            state.resume = ResumeContext.of(response)
+            state.resume = ResumeContext.of(finalResponse)
         } else if (resumeRequested) {
-            if (state.resume!!.canResume(code, response)) {
+            if (state.resume!!.canResume(code, finalResponse)) {
                 Logger.info(TAG, "Resuming $url from ${state.resume!!.countUncompressed}")
             } else {
                 //服务器没能按段续传：丢弃已有内容，从头开始
@@ -447,13 +489,14 @@ object Fetcher {
         } else {
             state.discardSink()
             state.sink = FileSink(targetFile, sha1)
-            state.resume = ResumeContext.of(response)
+            state.resume = ResumeContext.of(finalResponse)
         }
 
         var inputStream: InputStream? = null
         var bodyConsumed = false
         try {
-            inputStream = connection.inputStream
+            //显式请求了 accept-encoding: gzip，OkHttp 不会透明解压，这里拿到的是原始响应体
+            inputStream = connection!!.body!!.byteStream()
             transfer(state.sink!!, state.resume, inputStream, contentLength, contentEncoding, state::reportBytes)
             inputStream = null
             bodyConsumed = true
@@ -466,7 +509,8 @@ object Fetcher {
             throw e
         } finally {
             runCatching { inputStream?.close() }
-            if (!bodyConsumed) disconnectQuietly(connection)
+            //响应体未读完：等价旧路径的 disconnectQuietly(connection)，不把半截连接放回池中
+            if (!bodyConsumed) closeQuietly(connection)
         }
 
         try {
@@ -509,21 +553,12 @@ object Fetcher {
         }
     }
 
-    private fun openConnection(url: URL): HttpURLConnection {
-        val connection = url.openConnection() as HttpURLConnection
-        connection.connectTimeout = TIMEOUT_MILLIS
-        connection.readTimeout = TIMEOUT_MILLIS
-        connection.instanceFollowRedirects = false
-        connection.setRequestProperty("User-Agent", URL_USER_AGENT)
-        return connection
-    }
-
     private fun isHttpUri(url: URL): Boolean =
         url.protocol.equals("http", ignoreCase = true) || url.protocol.equals("https", ignoreCase = true)
 
-    private fun disconnectQuietly(connection: HttpURLConnection?) {
-        if (connection == null) return
-        runCatching { connection.errorStream?.close() }
-        connection.disconnect()
+    /** 等价旧 HttpURLConnection 路径的 disconnectQuietly：关闭响应体并归还/释放底层连接 */
+    private fun closeQuietly(response: Response?) {
+        if (response == null) return
+        runCatching { response.close() }
     }
 }

@@ -168,7 +168,12 @@ fun createOkHttpClientBuilder(action: (OkHttpClient.Builder) -> Unit = { }): OkH
     return OkHttpClient.Builder()
         .dns(ResilientDns) //系统 DNS 解析失败时，自动回退到 DoH 解析
         .sslSocketFactory(TLSSecurity.sslSocketFactory, TLSSecurity.trustManager)
-        .protocols(listOf(Protocol.HTTP_1_1))
+        // N1: let OkHttp negotiate h2 via ALPN (with automatic h1 fallback) for the
+        // short API/image/metadata requests built from this client. Do not force
+        // HTTP/1.1 here; bulk file downloads use buildDownloadClient() below and
+        // deliberately stay on h1 so 16 parallel range transfers get independent
+        // connections. Callers that truly need h1-only can still pass
+        // .protocols(listOf(Protocol.HTTP_1_1)) through `action`.
         .callTimeout(TIME_OUT, TimeUnit.MILLISECONDS)
         .addInterceptor(CURSEFORGE_INTERCEPTOR)
         .addInterceptor(USER_AGENT_INTERCEPTOR)
