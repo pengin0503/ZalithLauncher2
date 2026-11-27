@@ -225,6 +225,71 @@ suspend fun fetchStringFromUrls(urls: List<String>): String = withContext(Dispat
 }
 
 /**
+ * 同步获取 URL 返回的字符串内容，允许附带条件请求头（例如 If-Modified-Since）。
+ *
+ * @return 服务器返回的字符串内容；服务器回答 304 Not Modified 时返回 null，表示本地缓存仍然有效。
+ * @throws IllegalArgumentException 当URL无效时
+ * @throws IOException 当网络请求失败或响应解析失败时
+ */
+@Throws(IOException::class, IllegalArgumentException::class)
+suspend fun fetchStringFromUrlConditional(
+    url: String,
+    headers: Map<String, String>
+): String? = withContext(Dispatchers.IO) {
+    try {
+        withTimeout(TIME_OUT.milliseconds) {
+            runInterruptible {
+                DOWNLOAD_OKHTTP_CLIENT.newCall(
+                    createRequestBuilder(url).apply {
+                        headers.forEach { (name, value) -> header(name, value) }
+                    }.build()
+                ).execute().use { response ->
+                    // 304 没有响应体，不能走 !isSuccessful 分支把它当成错误抛出
+                    if (response.code == 304) return@use null
+                    if (!response.isSuccessful) {
+                        throw IOException("HTTP ${response.code} - ${response.message}")
+                    }
+
+                    response.body.use { it.string() }
+                }
+            }
+        }
+    } catch (_: TimeoutCancellationException) {
+        throw TimeoutException("Request timed out after ${TIME_OUT}ms: $url")
+    }
+}
+
+/**
+ * 按优先级从多个候选源执行条件 GET；首个成功者胜出。
+ * 某个源回答 304 时同样视为成功并立即返回 null（缓存有效），不会继续轮转其它镜像。
+ */
+@Throws(IOException::class, IllegalArgumentException::class)
+suspend fun fetchStringFromUrlsConditional(
+    urls: List<String>,
+    headers: Map<String, String>
+): String? = withContext(Dispatchers.IO) {
+    var result: String? = null
+    var succeed = false
+    var lastException: Throwable? = null
+
+    loop@ for (url in urls) {
+        runCatching {
+            result = fetchStringFromUrlConditional(url, headers)
+            succeed = true
+            break@loop
+        }.onFailure { th ->
+            if (th is CancellationException || th.isInterruptedIOException()) throw th
+            Logger.debug(TAG, "Source $url failed!", th)
+            lastException = th
+        }
+    }
+
+    if (!succeed) throw lastException ?: IOException("Failed to retrieve information from the source!")
+
+    result
+}
+
+/**
  * 展示一个提示弹窗，告知用户接下来将要在浏览器内访问的链接，用户可以选择不进行访问
  * @param link 要访问的链接
  */

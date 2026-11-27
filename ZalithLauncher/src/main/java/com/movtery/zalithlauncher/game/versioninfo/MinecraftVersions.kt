@@ -28,6 +28,7 @@ import com.movtery.zalithlauncher.utils.GSON
 import com.movtery.zalithlauncher.utils.file.readString
 import com.movtery.zalithlauncher.utils.logging.Logger
 import com.movtery.zalithlauncher.utils.network.fetchStringFromUrls
+import com.movtery.zalithlauncher.utils.network.fetchStringFromUrlsConditional
 import com.movtery.zalithlauncher.utils.network.withRetry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,9 +36,19 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import org.apache.commons.io.FileUtils
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 import java.util.concurrent.TimeUnit
 
 private const val TAG = "MinecraftVersions"
+
+/** HTTP 日期格式（RFC 1123），用于 If-Modified-Since 请求头。 */
+private fun formatHttpDate(timeMillis: Long): String =
+    SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss 'GMT'", Locale.US).apply {
+        timeZone = TimeZone.getTimeZone("GMT")
+    }.format(Date(timeMillis))
 
 object MinecraftVersions {
     private var manifest: VersionManifest? = null
@@ -77,7 +88,8 @@ object MinecraftVersions {
                     localManifestFile.lastModified() + TimeUnit.DAYS.toMillis(1) < System.currentTimeMillis()
 
             val newManifest = if (force || isOutdated) {
-                downloadVersionManifest()
+                // 强制刷新必须绕过条件请求，否则 304 会让用户继续看到旧列表
+                downloadVersionManifest(skipConditional = force)
             } else {
                 try {
                     GSON.fromJson(localManifestFile.readText(), VersionManifest::class.java)
@@ -85,7 +97,8 @@ object MinecraftVersions {
                     Logger.warning(TAG, "Failed to parse version manifest, will redownload", e)
                     //读取失败则删除当前的版本信息文件
                     FileUtils.deleteQuietly(localManifestFile)
-                    downloadVersionManifest()
+                    // 缓存已损坏，绝不能带上它的 mtime 去要 304
+                    downloadVersionManifest(skipConditional = true)
                 }
             }
 
@@ -97,14 +110,46 @@ object MinecraftVersions {
     }
 
     /**
-     * 从官方版本仓库获取版本信息
+     * 从官方版本仓库获取版本信息。
+     *
+     * N3: 日常刷新带上 If-Modified-Since，未变化的多 MB manifest 只需一个约 1 KB 的
+     * 304 响应；服务器/镜像忽略该请求头时仍按原样返回 200 + 全量内容。
      */
-    private suspend fun downloadVersionManifest(): VersionManifest {
+    private suspend fun downloadVersionManifest(skipConditional: Boolean = false): VersionManifest {
         return withContext(Dispatchers.IO) {
             withRetry("MinecraftVersions", maxRetries = 2) {
-                val rawJson = fetchStringFromUrls(URL_MINECRAFT_VERSION_REPOS.mapBMCLMirrorUrls())
+                val localManifestFile = PathManager.FILE_MINECRAFT_VERSIONS
+                val cachedJson = if (localManifestFile.isFile) {
+                    runCatching { localManifestFile.readText() }.getOrNull()
+                } else null
+
+                val headers = if (!skipConditional && cachedJson != null) {
+                    mapOf("If-Modified-Since" to formatHttpDate(localManifestFile.lastModified()))
+                } else emptyMap()
+
+                val urls = URL_MINECRAFT_VERSION_REPOS.mapBMCLMirrorUrls()
+                // null 表示某个源回答了 304：本地字节仍然有效
+                val remoteJson = fetchStringFromUrlsConditional(urls, headers)
+
+                val usedCache = remoteJson == null && cachedJson != null
+                val rawJson = when {
+                    remoteJson != null -> remoteJson
+                    usedCache -> cachedJson!!
+                    else -> {
+                        // 镜像在没有任何可用缓存时回答了 304：退回不带条件头的全量请求
+                        Logger.warning(TAG, "Manifest mirror returned 304 without usable cache, refetching")
+                        fetchStringFromUrls(urls)
+                    }
+                }
+
                 val versionManifest = GSON.fromJson(rawJson, VersionManifest::class.java)
-                PathManager.FILE_MINECRAFT_VERSIONS.writeText(rawJson)
+                if (usedCache) {
+                    // 304 保留原字节，只刷新 mtime，否则下次启动仍会判定为过期并重复请求
+                    runCatching { localManifestFile.setLastModified(System.currentTimeMillis()) }
+                        .onFailure { Logger.warning(TAG, "Failed to refresh manifest timestamp", it) }
+                } else {
+                    localManifestFile.writeText(rawJson)
+                }
                 versionManifest
             }
         }
