@@ -306,6 +306,13 @@ android {
         jniLibs {
             useLegacyPackaging = true
             pickFirsts += listOf("**/libbytehook.so")
+            if (liteBuild) {
+                // unpack200() only repairs Java 8 .pack files; Lite never ships
+                // JRE 8/17 and its JRE 21/25 payloads contain no .pack entries.
+                // Importing a custom Java 8 runtime with .pack files is not
+                // supported in Lite, so leave the dead binary out of the APK.
+                excludes.add("**/libunpack200.so")
+            }
         }
     }
 

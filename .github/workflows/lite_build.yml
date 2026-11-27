@@ -57,7 +57,7 @@ jobs:
           # pipefail a slow unzip can die of SIGPIPE and invert the assertion.
           listing="$RUNNER_TEMP/lite-apk-listing.txt"
           unzip -l "$apk" > "$listing"
-          for bad in 'assets/runtimes/jre-8/' 'assets/runtimes/jre-17/' 'lib/arm64-v8a/libOSMesa_2300d.so'; do
+          for bad in 'assets/runtimes/jre-8/' 'assets/runtimes/jre-17/' 'lib/arm64-v8a/libOSMesa_2300d.so' 'lib/arm64-v8a/libunpack200.so'; do
             if grep -Fq "$bad" "$listing"; then echo "unexpected: $bad"; exit 1; fi
           done
           for good in 'assets/runtimes/jre-21/' 'assets/runtimes/jre-25/' 'lib/arm64-v8a/libmobileglues.so' 'lib/arm64-v8a/libOSMesa_2121.so' 'lib/arm64-v8a/libOSMesa_8.so'; do
