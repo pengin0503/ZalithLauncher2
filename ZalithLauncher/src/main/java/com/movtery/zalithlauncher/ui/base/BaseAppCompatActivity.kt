@@ -21,6 +21,7 @@ package com.movtery.zalithlauncher.ui.base
 import android.app.ActivityManager
 import android.os.Bundle
 import androidx.annotation.CallSuper
+import androidx.lifecycle.lifecycleScope
 import com.movtery.zalithlauncher.BuildKeys
 import com.movtery.zalithlauncher.context.refreshContext
 import com.movtery.zalithlauncher.game.account.AccountsManager
